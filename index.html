@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Odds Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@msgpack/msgpack@3.0.0/dist.umd/msgpack.min.js"></script>
+<style>
+/* Layout: two-pane trading desk — scannable coin ledger left, odds sheet + order ticket right; sheet becomes a full-screen overlay on phones */
+:root{
+  --ink:#0d1217; --panel:#141b23; --raise:#1b2430; --line:#26313f;
+  --fg:#dce4ec; --muted:#7f8d9d; --faint:#4c5968;
+  --bull:#3ccf8d; --bear:#f2606c; --gold:#e9b44c;
+  --bull-d:rgba(60,207,141,.14); --bear-d:rgba(242,96,108,.14); --gold-d:rgba(233,180,76,.14);
+  --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--ink);color:var(--fg);font:14px/1.45 var(--display);font-variation-settings:"wdth" 100;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.up{color:var(--bull)} .dn{color:var(--bear)}
+.app{height:100%;display:grid;grid-template-rows:auto auto 1fr}
+
+/* top bar */
+.bar{display:flex;align-items:center;gap:14px;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-weight:800;font-size:19px;letter-spacing:-.01em;font-variation-settings:"wdth" 78;display:flex;align-items:baseline;gap:8px}
+.brand i{font-style:normal;color:var(--bull)} .brand b{color:var(--bear)}
+.brand small{font:500 11px var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.spacer{flex:1}
+.net{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 8px;border-radius:3px;border:1px solid var(--line);color:var(--muted)}
+.net.main{color:var(--bear);border-color:var(--bear);background:var(--bear-d)}
+.acct{font:12px var(--mono);color:var(--muted);display:flex;gap:12px}
+.acct b{color:var(--fg);font-weight:500}
+.btn{border:1px solid var(--line);background:var(--raise);padding:7px 12px;border-radius:4px;font-weight:600;font-size:13px}
+.btn:hover{border-color:var(--faint)}
+.btn.gold{background:var(--gold);border-color:var(--gold);color:#1a1405}
+.btn.gold:hover{filter:brightness(1.07)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.notice{padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));font-size:12.5px;color:var(--muted);background:var(--panel);border-bottom:1px solid var(--line)}
+.notice b{color:var(--gold);font-weight:600}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,460px);min-height:0}
+
+/* ledger */
+.ledger{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+.tools{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tools input[type=search]{flex:1;min-width:140px;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px 10px}
+.tools select{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px 8px}
+.chk{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.rows{overflow:auto;min-height:0}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:var(--ink);z-index:1;text-align:right;font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:8px 10px;border-bottom:1px solid var(--line)}
+th:nth-child(1),th:nth-child(2){text-align:left}
+td{padding:9px 10px;border-bottom:1px solid rgba(38,49,63,.6);text-align:right;white-space:nowrap}
+td:nth-child(1){color:var(--faint);text-align:left;width:34px}
+td:nth-child(2){text-align:left}
+tr.r{cursor:pointer}
+tr.r:hover td{background:var(--panel)}
+tr.r.sel td{background:var(--raise)}
+.coin{display:flex;align-items:center;gap:9px;min-width:0}
+.coin img{width:20px;height:20px;border-radius:50%;flex:none}
+.coin .sym{font-weight:700;font-variation-settings:"wdth" 85}
+.coin .nm{color:var(--muted);font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+.hl{font:600 9.5px var(--mono);letter-spacing:.06em;padding:1px 4px;border-radius:2px;background:var(--gold-d);color:var(--gold)}
+.chip{display:inline-flex;align-items:center;gap:6px;font:600 11.5px var(--mono);padding:2px 7px;border-radius:3px}
+.chip.bull{background:var(--bull-d);color:var(--bull)} .chip.bear{background:var(--bear-d);color:var(--bear)} .chip.flat{background:var(--raise);color:var(--muted)}
+.mini{display:inline-block;width:70px;height:6px;border-radius:3px;background:var(--bear);overflow:hidden;vertical-align:middle}
+.mini span{display:block;height:100%;background:var(--bull)}
+svg.spark{display:block;margin-left:auto}
+.col-hide{}
+
+/* sheet */
+.sheet{overflow:auto;min-height:0;background:var(--panel)}
+.sheet-inner{padding:18px 20px 28px;display:flex;flex-direction:column;gap:18px}
+.empty{color:var(--muted);padding:40px 24px;text-align:center}
+.shead{display:flex;align-items:center;gap:12px}
+.shead img{width:36px;height:36px;border-radius:50%}
+.shead h2{margin:0;font-size:24px;font-weight:800;font-variation-settings:"wdth" 80;letter-spacing:-.01em;line-height:1}
+.shead .sub{color:var(--muted);font-size:12.5px}
+.close-sheet{display:none;margin-left:auto}
+.price{font:600 26px var(--mono);letter-spacing:-.02em}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.stats div{background:var(--panel);padding:8px 10px}
+.stats span{display:block;font:500 10px var(--mono);color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+.stats b{font:500 13px var(--mono)}
+.label{font:500 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+
+/* odds */
+.odds{display:flex;flex-direction:column;gap:10px}
+.oddsbar{position:relative;height:46px;display:flex;border-radius:4px;overflow:hidden;font:700 18px var(--mono)}
+.oddsbar .b{background:var(--bull);color:#06281a;display:flex;align-items:center;padding-left:12px;transition:flex-basis .5s}
+.oddsbar .s{background:var(--bear);color:#3a0a10;display:flex;align-items:center;justify-content:flex-end;padding-right:12px;transition:flex-basis .5s}
+.oddsbar .mid{position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed rgba(13,18,23,.55)}
+.oddslab{display:flex;justify-content:space-between;font:500 11px var(--mono);color:var(--muted)}
+.summary{font-size:15px;line-height:1.5;margin:0}
+.cases{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.case{border:1px solid var(--line);border-radius:4px;padding:12px;background:var(--ink)}
+.case h3{margin:0 0 2px;font-size:15px;font-weight:800;font-variation-settings:"wdth" 82;display:flex;justify-content:space-between;align-items:baseline}
+.case.bull h3{color:var(--bull)} .case.bear h3{color:var(--bear)}
+.case .tgt{font:12px var(--mono);color:var(--muted);margin-bottom:8px}
+.case ul{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:5px;font-size:13px;line-height:1.4}
+.meta{font:11px var(--mono);color:var(--faint);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.thinking{border:1px dashed var(--line);border-radius:4px;padding:18px;color:var(--muted);font-size:13px;display:flex;gap:10px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--gold);animation:pulse 1s infinite alternate}
+@keyframes pulse{to{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.dot{animation:none}.oddsbar .b,.oddsbar .s{transition:none}}
+.err{color:var(--bear);font-size:13px;border:1px solid var(--bear);background:var(--bear-d);border-radius:4px;padding:10px 12px}
+.hz{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{background:none;border:0;padding:6px 10px;font:600 12px var(--mono);color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--raise);color:var(--fg)}
+
+/* ticket */
+.ticket{border:1px solid var(--line);border-radius:6px;background:var(--ink);padding:14px;display:flex;flex-direction:column;gap:12px}
+.ticket h3{margin:0;font-size:15px;font-weight:800;font-variation-settings:"wdth" 82;display:flex;justify-content:space-between}
+.side{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.side button{border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:10px;font-weight:800;font-size:15px;font-variation-settings:"wdth" 85;display:flex;flex-direction:column;align-items:center;gap:1px}
+.side button small{font:500 11px var(--mono);color:var(--muted)}
+.side button.long[aria-pressed=true]{background:var(--bull);border-color:var(--bull);color:#06281a}
+.side button.short[aria-pressed=true]{background:var(--bear);border-color:var(--bear);color:#3a0a10}
+.side button[aria-pressed=true] small{color:inherit;opacity:.75}
+.levrow{display:flex;align-items:center;gap:12px}
+.levbig{font:700 30px var(--mono);letter-spacing:-.03em;min-width:72px}
+.levnote{font-size:12px;color:var(--muted);line-height:1.4}
+.gauge{display:flex;gap:3px}
+.gauge i{flex:1;height:8px;border-radius:2px;background:var(--line)}
+.gauge i.on{background:var(--gold)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.inp{display:flex;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:4px}
+.inp input{flex:1;min-width:0;background:none;border:0;padding:8px 10px;font-family:var(--mono)}
+.inp input:focus{outline:none}
+.inp:focus-within{border-color:var(--gold)}
+.inp span{padding:0 10px;color:var(--muted);font:12px var(--mono)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.calc{font:12px var(--mono);color:var(--muted);display:grid;grid-template-columns:1fr auto;gap:3px 10px}
+.calc b{color:var(--fg);font-weight:500;text-align:right}
+.override{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.confirm{border:1px solid var(--gold);background:var(--gold-d);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:10px;font-size:13px}
+.confirm .row{display:flex;gap:8px}
+.confirm .row .btn{flex:1}
+.result{font:12.5px var(--mono);border-radius:4px;padding:10px 12px;border:1px solid var(--line);white-space:pre-wrap;word-break:break-word}
+.result.ok{border-color:var(--bull);background:var(--bull-d)}
+.result.bad{border-color:var(--bear);background:var(--bear-d)}
+
+/* positions */
+.pos{display:flex;flex-direction:column;gap:6px}
+.posrow{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;font:12.5px var(--mono);padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--ink)}
+
+/* settings dialog */
+dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100% - 32px)}
+dialog::backdrop{background:rgba(5,8,11,.7)}
+.dlg{padding:20px;display:flex;flex-direction:column;gap:14px}
+.dlg h2{margin:0;font-size:20px;font-weight:800;font-variation-settings:"wdth" 80}
+.dlg p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.5}
+.dlg fieldset{border:1px solid var(--line);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:10px;margin:0}
+.dlg legend{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--gold);padding:0 6px}
+.dlg select{background:var(--ink);border:1px solid var(--line);border-radius:4px;padding:8px}
+.dlg .inp{background:var(--ink)}
+.dlg a{color:var(--gold)}
+.dlg .foot{display:flex;justify-content:flex-end;gap:8px}
+
+@media (max-width:900px){
+  .main{grid-template-columns:1fr}
+  .ledger{border-right:0}
+  .sheet{position:fixed;inset:0;z-index:20;display:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .sheet.open{display:block}
+  .sheet-inner{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .close-sheet{display:inline-block}
+  .col-hide{display:none}
+  .acct{display:none}
+}
+@media (max-width:520px){
+  .cases,.grid2{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .coin .nm{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><span><i>Bull</i>/<b>Bear</b> Odds Desk</span><small>Top 100 · Hyperliquid</small></div>
+    <div class="spacer"></div>
+    <div class="acct" id="acct"></div>
+    <span class="net" id="netBadge">Testnet</span>
+    <button class="btn" id="analyzeTop">Analyze top 20</button>
+    <button class="btn gold" id="openSettings">Settings</button>
+  </header>
+  <div class="notice" id="notice"><b>AI odds are opinions, not forecasts.</b> Model probabilities aren't calibrated and leverage magnifies losses. Starts on testnet; switch to mainnet in Settings.</div>
+  <main class="main">
+    <section class="ledger">
+      <div class="tools">
+        <input type="search" id="q" placeholder="Search coins" aria-label="Search coins">
+        <select id="sort" aria-label="Sort">
+          <option value="rank">Market cap</option>
+          <option value="ch24">24h change</option>
+          <option value="ch7">7d change</option>
+          <option value="edge">AI edge</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="hlOnly"> Tradable on HL</label>
+      </div>
+      <div class="rows">
+        <table>
+          <thead><tr><th>#</th><th>Coin</th><th>Price</th><th>24h</th><th class="col-hide">7d</th><th class="col-hide">7d chart</th><th>AI odds</th></tr></thead>
+          <tbody id="tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">Loading top 100…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <aside class="sheet" id="sheet"><div class="sheet-inner" id="sheetInner"><div class="empty">Pick a coin to see its bull and bear case.</div></div></aside>
+  </main>
+</div>
+
+<dialog id="settings">
+  <form class="dlg" method="dialog" id="settingsForm">
+    <h2>Settings</h2>
+    <fieldset>
+      <legend>AI analysis</legend>
+      <div class="field"><label for="sKey">Anthropic API key</label><div class="inp"><input id="sKey" type="password" autocomplete="off" placeholder="sk-ant-…"></div></div>
+      <div class="grid2">
+        <div class="field"><label for="sModel">Model</label><select id="sModel"><option value="claude-sonnet-5-5">Claude Sonnet 5.5</option><option value="claude-opus-5-5">Claude Opus 5.5</option><option value="claude-haiku-5-5">Claude Haiku 5.5 (cheap)</option></select></div>
+        <div class="field"><label for="sHz">Default horizon</label><select id="sHz"><option value="24 hours">24 hours</option><option value="7 days" selected>7 days</option><option value="30 days">30 days</option></select></div>
+      </div>
+      <p>Calls go straight from this browser to Anthropic. Each analysis costs roughly one short message.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Hyperliquid</legend>
+      <div class="field"><label for="sNet">Network</label><select id="sNet"><option value="testnet">Testnet (play money)</option><option value="mainnet">Mainnet (real funds)</option></select></div>
+      <div class="field"><label for="sAddr">Account address (your main wallet)</label><div class="inp"><input id="sAddr" autocomplete="off" placeholder="0x…"></div></div>
+      <div class="field"><label for="sAgent">API wallet private key</label><div class="inp"><input id="sAgent" type="password" autocomplete="off" placeholder="0x…"></div></div>
+      <p>Create an API wallet at app.hyperliquid.xyz → More → API (or the testnet app). An API wallet can trade but cannot withdraw, so never paste your main wallet's key here. Orders are signed in this tab and sent only to Hyperliquid.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Risk</legend>
+      <div class="grid2">
+        <div class="field"><label for="sCap">Max leverage</label><div class="inp"><input id="sCap" type="number" min="1" max="50" step="1" value="5"><span>×</span></div></div>
+        <div class="field"><label for="sMargin">Default margin</label><div class="inp"><input id="sMargin" type="number" min="1" step="1" value="25"><span>USD</span></div></div>
+        <div class="field"><label for="sSlip">Max slippage</label><div class="inp"><input id="sSlip" type="number" min="0.1" max="10" step="0.1" value="1"><span>%</span></div></div>
+        <div class="field"><label for="sFloor">Skip below</label><div class="inp"><input id="sFloor" type="number" min="50" max="80" step="1" value="55"><span>% win odds</span></div></div>
+      </div>
+      <p>Leverage = max leverage × (win odds − 50) ÷ 25, rounded, at least 1×. So with a 5× cap: 60% → 2×, 70% → 4×, 75%+ → 5×. Below the skip line the desk recommends no trade.</p>
+    </fieldset>
+    <label class="chk"><input type="checkbox" id="sRemember"> Remember keys in this browser (otherwise they're cleared when you close the tab)</label>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn gold" id="saveSettings" value="save">Save</button></div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const STABLES = new Set(['usdt','usdc','dai','usde','fdusd','usds','pyusd','tusd','usd1','rlusd','usdtb','bsc-usd','susde','usdd','gusd','usdp','frax','usdx','usdg','buidl','usyc','susds','usd0','eurc','xaut','paxg','wbtc','weth','steth','wsteth','weeth','cbbtc','reth','wbeth','lbtc','jitosol','bnsol','solvbtc','meth','ezeth','rseth','msol','clbtc','tbtc','lseth','oseth']);
+const WRAPPED_NOTE = 'Stablecoin or wrapped token — no meaningful bull/bear case.';
+
+// ---------- settings ----------
+const DEF = { key:'', model:'claude-sonnet-5-5', hz:'7 days', net:'testnet', addr:'', agent:'', cap:5, margin:25, slip:1, floor:55, remember:false };
+const S = Object.assign({}, DEF);
+try {
+  const saved = JSON.parse(localStorage.getItem('od.settings') || 'null') || JSON.parse(sessionStorage.getItem('od.settings') || 'null');
+  if (saved) Object.assign(S, saved);
+} catch (e) {}
+function persist() {
+  const pub = Object.assign({}, S);
+  try {
+    if (S.remember) { localStorage.setItem('od.settings', JSON.stringify(pub)); sessionStorage.removeItem('od.settings'); }
+    else {
+      sessionStorage.setItem('od.settings', JSON.stringify(pub));
+      const lite = Object.assign({}, pub, { key:'', agent:'' });
+      localStorage.setItem('od.settings', JSON.stringify(lite));
+    }
+  } catch (e) {}
+}
+const API = () => S.net === 'mainnet' ? 'https://api.hyperliquid.xyz' : 'https://api.hyperliquid-testnet.xyz';
+
+// ---------- state ----------
+let coins = [];          // CoinGecko rows
+let hl = {};             // upper symbol -> {name, asset, szDecimals, maxLev, mark, funding, oi, scale}
+let selected = null;
+let side = null, levOverride = null, pendingConfirm = false, lastResult = null;
+let horizon = S.hz;
+let analyses = {};
+try { analyses = JSON.parse(localStorage.getItem('od.analyses') || '{}'); } catch (e) {}
+const inflight = new Map();
+const errors = {};
+let account = null;
+
+// ---------- formatting ----------
+function fmtPx(p) {
+  if (p == null || isNaN(p)) return '—';
+  if (p >= 1000) return '$' + p.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (p >= 1) return '$' + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (p >= 0.01) return '$' + p.toFixed(4);
+  return '$' + p.toPrecision(3);
+}
+function fmtPct(x, d = 1) { if (x == null || isNaN(x)) return '—'; return (x > 0 ? '+' : '') + x.toFixed(d) + '%'; }
+function fmtBig(x) { if (!x) return '—'; if (x >= 1e12) return '$' + (x/1e12).toFixed(2) + 'T'; if (x >= 1e9) return '$' + (x/1e9).toFixed(1) + 'B'; if (x >= 1e6) return '$' + (x/1e6).toFixed(1) + 'M'; return '$' + Math.round(x).toLocaleString(); }
+function cls(x) { return x > 0 ? 'up' : x < 0 ? 'dn' : ''; }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function isStable(c) { return STABLES.has(c.symbol.toLowerCase()) || STABLES.has(c.id); }
+
+function spark(arr, w = 84, h = 24) {
+  if (!arr || arr.length < 2) return '';
+  const step = Math.max(1, Math.floor(arr.length / 42));
+  const pts = arr.filter((_, i) => i % step === 0);
+  const min = Math.min(...pts), max = Math.max(...pts), rng = max - min || 1;
+  const d = pts.map((v, i) => `${(i / (pts.length - 1) * w).toFixed(1)},${(h - 2 - (v - min) / rng * (h - 4)).toFixed(1)}`).join(' ');
+  const up = pts[pts.length - 1] >= pts[0];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline fill="none" stroke="var(${up ? '--bull' : '--bear'})" stroke-width="1.4" points="${d}"/></svg>`;
+}
+
+// ---------- data ----------
+async function loadCoins() {
+  const url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=24h,7d,30d';
+  let r = null;
+  if (HOSTED) { try { r = await fetch('/api/cg'); if (!r.ok && r.status === 404) r = null; } catch (e) { r = null; } }
+  if (!r) { try { r = await fetch(url); } catch (e) { throw new Error(netHint('CoinGecko')); } }
+  if (!r.ok) throw new Error('CoinGecko returned ' + r.status + (r.status === 429 ? ' (rate limited — wait a minute and reload)' : ''));
+  coins = await r.json();
+}
+// Prefer the same-origin proxy (no CORS) when hosted; fall back to calling Hyperliquid directly.
+const HOSTED = location.protocol === 'http:' || location.protocol === 'https:';
+let proxyOK = HOSTED;
+function netHint(what) {
+  if (!HOSTED) return what + ' blocked the request because the page was opened as a local file. Host it (e.g. Vercel) or open it from a local server.';
+  return what + ' could not be reached (network or browser extension blocking it).';
+}
+async function hlPost(ep, body) {
+  const payload = JSON.stringify(body);
+  if (proxyOK) {
+    try {
+      const r = await fetch(`/api/hl?net=${S.net}&ep=${ep}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload });
+      if (r.status !== 404 && r.status !== 405) return r;
+      proxyOK = false;
+    } catch (e) { proxyOK = false; }
+  }
+  try {
+    return await fetch(API() + '/' + ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload });
+  } catch (e) { throw new Error(netHint('Hyperliquid ' + S.net)); }
+}
+async function info(body) {
+  const r = await hlPost('info', body);
+  if (!r.ok) throw new Error('Hyperliquid info returned ' + r.status);
+  return r.json();
+}
+async function loadHL() {
+  const [meta, ctxs] = await info({ type: 'metaAndAssetCtxs' });
+  hl = {};
+  meta.universe.forEach((u, i) => {
+    if (u.isDelisted) return;
+    const c = ctxs[i] || {};
+    const scale = /^k[A-Z]/.test(u.name) ? 1000 : 1;
+    const key = scale === 1000 ? u.name.slice(1) : u.name;
+    hl[key.toUpperCase()] = { name: u.name, asset: i, szDecimals: u.szDecimals, maxLev: u.maxLeverage, mark: +c.markPx, funding: +c.funding, oi: +c.openInterest, scale };
+  });
+}
+function hlFor(c) { return isStable(c) ? null : hl[c.symbol.toUpperCase()] || null; }
+
+async function loadAccount() {
+  if (!S.addr) { account = null; renderAcct(); return; }
+  try { account = await info({ type: 'clearinghouseState', user: S.addr }); } catch (e) { account = null; }
+  renderAcct();
+  if (selected) renderSheet();
+}
+function renderAcct() {
+  const el = $('#acct');
+  if (!account) { el.innerHTML = S.addr ? '<span>Account not found on this network</span>' : ''; return; }
+  const ms = account.marginSummary || {};
+  el.innerHTML = `<span>Equity <b>${fmtPx(+ms.accountValue)}</b></span><span>Free <b>${fmtPx(+account.withdrawable)}</b></span><span>Positions <b>${(account.assetPositions || []).length}</b></span>`;
+}
+
+// ---------- AI ----------
+function coinContext(c) {
+  const h = hlFor(c);
+  const sp = c.sparkline_in_7d?.price || [];
+  const lo7 = sp.length ? Math.min(...sp) : null, hi7 = sp.length ? Math.max(...sp) : null;
+  return {
+    name: c.name, symbol: c.symbol.toUpperCase(), rank: c.market_cap_rank,
+    price_usd: c.current_price, market_cap_usd: c.market_cap, volume_24h_usd: c.total_volume,
+    change_24h_pct: c.price_change_percentage_24h_in_currency, change_7d_pct: c.price_change_percentage_7d_in_currency, change_30d_pct: c.price_change_percentage_30d_in_currency,
+    range_7d: [lo7, hi7], all_time_high: c.ath, pct_from_ath: c.ath_change_percentage, ath_date: c.ath_date,
+    circulating_supply: c.circulating_supply, max_supply: c.max_supply,
+    hyperliquid_perp: h ? { funding_rate_hourly: h.funding, open_interest_coins: h.oi * h.scale, max_leverage: h.maxLev } : 'not listed'
+  };
+}
+function buildPrompt(c, hz) {
+  return `You are a crypto market analyst writing for a beginner. Today is ${new Date().toISOString().slice(0,10)}.
+Here is current market data for one coin (JSON):
+${JSON.stringify(coinContext(c))}
+
+Using this data plus what you know about the project (what it does, token supply/unlocks, narrative, typical behaviour vs BTC), estimate the probability that the price will be HIGHER (bull) vs LOWER (bear) than today's price in ${hz}.
+Be honest: if it's close to a coin flip, say ~50/50. Do not exceed 80% either way. Positive funding means longs are crowded.
+
+Reply with ONLY a JSON object, no markdown:
+{"bull":{"prob":<integer>,"target":<price if the bull case plays out over ${hz}>,"why":["<reason>","<reason>","<reason>"]},
+ "bear":{"prob":<integer>,"target":<price if the bear case plays out over ${hz}>,"why":["<reason>","<reason>","<reason>"]},
+ "summary":"<one plain sentence verdict>"}
+Rules: bull.prob + bear.prob = 100. Each reason is under 14 words, uses everyday words a 12-year-old understands, no jargon (say "lots of people betting it goes up" not "positive funding").`;
+}
+function extractJSON(t) {
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a < 0 || b < a) throw new Error('The model did not return JSON.');
+  return JSON.parse(t.slice(a, b + 1));
+}
+async function analyze(c, hz = horizon) {
+  const id = c.id + '|' + hz;
+  if (inflight.has(id)) return inflight.get(id);
+  if (!S.key) { openSettings('Add your Anthropic API key to run the AI analysis.'); throw new Error('Add an Anthropic API key in Settings.'); }
+  const p = (async () => {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': S.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: S.model, max_tokens: 900, messages: [{ role: 'user', content: buildPrompt(c, hz) }] })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error?.message || ('Anthropic API error ' + r.status));
+    const text = (j.content || []).filter(x => x.type === 'text').map(x => x.text).join('');
+    const o = extractJSON(text);
+    let bp = Math.round(+o.bull?.prob), sp = Math.round(+o.bear?.prob);
+    if (!isFinite(bp) || !isFinite(sp)) throw new Error('Probabilities missing from the answer.');
+    const tot = bp + sp || 100; bp = Math.round(bp / tot * 100); sp = 100 - bp;
+    const res = { bull: { prob: bp, target: +o.bull.target, why: (o.bull.why || []).slice(0, 4) }, bear: { prob: sp, target: +o.bear.target, why: (o.bear.why || []).slice(0, 4) }, summary: o.summary || '', hz, model: S.model, at: Date.now(), px: c.current_price };
+    analyses[id] = res;
+    try { localStorage.setItem('od.analyses', JSON.stringify(analyses)); } catch (e) {}
+    return res;
+  })();
+  inflight.set(id, p);
+  try { return await p; } finally { inflight.delete(id); }
+}
+function getA(c, hz = horizon) {
+  const a = analyses[c.id + '|' + hz];
+  if (!a) return null;
+  if (Date.now() - a.at > 6 * 3600e3) return Object.assign({ stale: true }, a);
+  return a;
+}
+function bestSide(a) { return a.bull.prob >= a.bear.prob ? 'long' : 'short'; }
+function winOdds(a) { return Math.max(a.bull.prob, a.bear.prob); }
+function levFor(a, h) {
+  const p = winOdds(a);
+  if (p < S.floor) return 0;
+  const cap = Math.max(1, Math.min(+S.cap || 1, h ? h.maxLev : 50));
+  return Math.max(1, Math.min(cap, Math.round(cap * (p - 50) / 25)));
+}
+
+// ---------- Hyperliquid signing (verified against hyperliquid-python-sdk) ----------
+function floatToWire(x) { let s = Number(x).toFixed(8); if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, ''); return s === '-0' ? '0' : s; }
+function roundPx(px, szDecimals) { const sig = Number(Number(px).toPrecision(5)); const d = Math.max(0, 6 - szDecimals); return Number(sig.toFixed(d)); }
+function floorSz(sz, szDecimals) { const f = Math.pow(10, szDecimals); return Math.floor(sz * f + 1e-9) / f; }
+function actionHash(action, nonce) {
+  const packed = MessagePack.encode(action);
+  const all = new Uint8Array(packed.length + 9);
+  all.set(packed, 0);
+  new DataView(all.buffer).setBigUint64(packed.length, BigInt(nonce));
+  all[packed.length + 8] = 0;
+  return ethers.keccak256(all);
+}
+async function signL1(action, nonce) {
+  const w = new ethers.Wallet(S.agent.trim());
+  const domain = { name: 'Exchange', version: '1', chainId: 1337, verifyingContract: '0x0000000000000000000000000000000000000000' };
+  const types = { Agent: [{ name: 'source', type: 'string' }, { name: 'connectionId', type: 'bytes32' }] };
+  const sig = ethers.Signature.from(await w.signTypedData(domain, types, { source: S.net === 'mainnet' ? 'a' : 'b', connectionId: actionHash(action, nonce) }));
+  return { r: sig.r, s: sig.s, v: sig.v };
+}
+let lastNonce = 0;
+async function exchange(action) {
+  let nonce = Date.now(); if (nonce <= lastNonce) nonce = lastNonce + 1; lastNonce = nonce;
+  const signature = await signL1(action, nonce);
+  const r = await hlPost('exchange', { action, nonce, signature, vaultAddress: null });
+  const j = await r.json().catch(() => ({ status: 'err', response: 'HTTP ' + r.status }));
+  if (j.status !== 'ok') throw new Error(typeof j.response === 'string' ? j.response : JSON.stringify(j.response));
+  return j.response;
+}
+async function marketOrder(h, isBuy, sizeCoins, reduceOnly) {
+  const mids = await info({ type: 'allMids' });
+  const mid = +mids[h.name];
+  if (!mid) throw new Error('No live price for ' + h.name);
+  const slip = (+S.slip || 1) / 100;
+  const px = roundPx(isBuy ? mid * (1 + slip) : mid * (1 - slip), h.szDecimals);
+  const sz = floorSz(sizeCoins, h.szDecimals);
+  if (sz <= 0) throw new Error('Size rounds to zero for ' + h.name + '. Increase the margin.');
+  const action = { type: 'order', orders: [{ a: h.asset, b: isBuy, p: floatToWire(px), s: floatToWire(sz), r: !!reduceOnly, t: { limit: { tif: 'Ioc' } } }], grouping: 'na' };
+  const res = await exchange(action);
+  const st = res?.data?.statuses?.[0] || {};
+  if (st.error) throw new Error(st.error);
+  return { st, mid, sz };
+}
+
+// ---------- rendering: ledger ----------
+function oddsCell(c) {
+  if (isStable(c)) return '<span class="chip flat">n/a</span>';
+  const a = getA(c);
+  if (inflight.has(c.id + '|' + horizon)) return '<span class="chip flat">…</span>';
+  if (!a) return '<span style="color:var(--faint)">—</span>';
+  const s = bestSide(a);
+  return `<span class="chip ${winOdds(a) < S.floor ? 'flat' : s === 'long' ? 'bull' : 'bear'}" title="Bull ${a.bull.prob}% / Bear ${a.bear.prob}%">${s === 'long' ? '▲' : '▼'} ${winOdds(a)}%</span>`;
+}
+function renderTable() {
+  const q = $('#q').value.trim().toLowerCase();
+  const hlOnly = $('#hlOnly').checked;
+  const sort = $('#sort').value;
+  let list = coins.filter(c => (!q || c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q)) && (!hlOnly || hlFor(c)));
+  const edge = c => { const a = getA(c); return a ? winOdds(a) : 0; };
+  if (sort === 'ch24') list.sort((a, b) => (b.price_change_percentage_24h_in_currency || 0) - (a.price_change_percentage_24h_in_currency || 0));
+  else if (sort === 'ch7') list.sort((a, b) => (b.price_change_percentage_7d_in_currency || 0) - (a.price_change_percentage_7d_in_currency || 0));
+  else if (sort === 'edge') list.sort((a, b) => edge(b) - edge(a));
+  else list.sort((a, b) => (a.market_cap_rank || 999) - (b.market_cap_rank || 999));
+  $('#tbody').innerHTML = list.length ? list.map(c => {
+    const d24 = c.price_change_percentage_24h_in_currency, d7 = c.price_change_percentage_7d_in_currency;
+    return `<tr class="r${selected && selected.id === c.id ? ' sel' : ''}" data-id="${esc(c.id)}" tabindex="0">
+      <td class="num">${c.market_cap_rank ?? ''}</td>
+      <td><div class="coin"><img src="${esc(c.image)}" alt="" loading="lazy"><span class="sym">${esc(c.symbol.toUpperCase())}</span><span class="nm">${esc(c.name)}</span>${hlFor(c) ? '<span class="hl">HL</span>' : ''}</div></td>
+      <td class="num">${fmtPx(c.current_price)}</td>
+      <td class="num ${cls(d24)}">${fmtPct(d24)}</td>
+      <td class="num col-hide ${cls(d7)}">${fmtPct(d7)}</td>
+      <td class="col-hide">${spark(c.sparkline_in_7d?.price)}</td>
+      <td>${oddsCell(c)}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No coins match.</td></tr>';
+}
+
+// ---------- rendering: sheet ----------
+function renderSheet() {
+  const c = selected;
+  const el = $('#sheetInner');
+  if (!c) { el.innerHTML = '<div class="empty">Pick a coin to see its bull and bear case.</div>'; return; }
+  const h = hlFor(c);
+  const a = getA(c);
+  const errMsg = errors[c.id + '|' + horizon];
+  const busy = inflight.has(c.id + '|' + horizon);
+  const stable = isStable(c);
+  const hzBtns = ['24 hours', '7 days', '30 days'].map(x => `<button type="button" data-hz="${x}" aria-pressed="${x === horizon}">${x.replace(' hours', 'h').replace(' days', 'd')}</button>`).join('');
+
+  let odds;
+  if (stable) odds = `<div class="thinking">${WRAPPED_NOTE}</div>`;
+  else if (busy) odds = `<div class="thinking"><span class="dot"></span>Weighing the bull and bear case for ${esc(c.name)} over ${horizon}…</div>`;
+  else if (errMsg) odds = `<div class="err">${esc(errMsg)}</div><button class="btn gold" id="runAI">Try again</button>`;
+  else if (!a) odds = `<button class="btn gold" id="runAI">Generate bull &amp; bear case</button>`;
+  else odds = `
+    <div class="oddsbar" role="img" aria-label="Bull ${a.bull.prob} percent, bear ${a.bear.prob} percent">
+      <div class="b" style="flex-basis:${a.bull.prob}%">${a.bull.prob}%</div><div class="s" style="flex-basis:${a.bear.prob}%">${a.bear.prob}%</div><div class="mid"></div>
+    </div>
+    <div class="oddslab"><span>▲ Higher in ${a.hz}</span><span>Lower in ${a.hz} ▼</span></div>
+    <p class="summary">${esc(a.summary)}</p>
+    <div class="cases">
+      <div class="case bull"><h3>Bull case <span class="num">${a.bull.prob}%</span></h3><div class="tgt">Target ${fmtPx(a.bull.target)} <span class="${cls(a.bull.target - c.current_price)}">${fmtPct((a.bull.target / c.current_price - 1) * 100)}</span></div><ul>${a.bull.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>
+      <div class="case bear"><h3>Bear case <span class="num">${a.bear.prob}%</span></h3><div class="tgt">Target ${fmtPx(a.bear.target)} <span class="${cls(a.bear.target - c.current_price)}">${fmtPct((a.bear.target / c.current_price - 1) * 100)}</span></div><ul>${a.bear.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>
+    </div>
+    <div class="meta"><span>${esc(a.model)} · ${new Date(a.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} at ${fmtPx(a.px)}${a.stale ? ' · <span class="dn">older than 6h</span>' : ''}</span><button class="btn" id="runAI" style="padding:3px 8px;font-size:11.5px">Re-run</button></div>`;
+
+  el.innerHTML = `
+    <div class="shead"><img src="${esc(c.image)}" alt=""><div><h2>${esc(c.name)}</h2><div class="sub">${esc(c.symbol.toUpperCase())} · Rank #${c.market_cap_rank}${h ? ` · HL perp <span class="num">${esc(h.name)}</span> up to ${h.maxLev}×` : stable ? '' : ' · not listed on Hyperliquid'}</div></div><button class="btn close-sheet" id="closeSheet">Close</button></div>
+    <div class="price num">${fmtPx(c.current_price)} <span class="${cls(c.price_change_percentage_24h_in_currency)}" style="font-size:15px">${fmtPct(c.price_change_percentage_24h_in_currency, 2)}</span></div>
+    <div class="stats">
+      <div><span>7d</span><b class="${cls(c.price_change_percentage_7d_in_currency)}">${fmtPct(c.price_change_percentage_7d_in_currency)}</b></div>
+      <div><span>30d</span><b class="${cls(c.price_change_percentage_30d_in_currency)}">${fmtPct(c.price_change_percentage_30d_in_currency)}</b></div>
+      <div><span>From ATH</span><b class="dn">${fmtPct(c.ath_change_percentage, 0)}</b></div>
+      <div><span>${h ? 'Funding/hr' : 'Mkt cap'}</span><b class="${h ? cls(h.funding) : ''}">${h ? (h.funding * 100).toFixed(4) + '%' : fmtBig(c.market_cap)}</b></div>
+    </div>
+    <div class="odds">
+      <div class="hz"><span class="label">AI odds over</span><div class="seg">${hzBtns}</div></div>
+      ${odds}
+    </div>
+    ${a && !stable ? ticketHTML(c, h, a) : ''}
+    ${positionsHTML()}`;
+  wireSheet(c, h, a);
+}
+
+function ticketHTML(c, h, a) {
+  if (!h) return `<div class="ticket"><h3>Trade</h3><div class="levnote">${esc(c.symbol.toUpperCase())} isn't listed as a perp on Hyperliquid ${S.net}, so there's nothing to trade here.</div></div>`;
+  const rec = levFor(a, h);
+  const s = side || bestSide(a);
+  const lev = levOverride || rec || 1;
+  const cap = Math.max(1, Math.min(+S.cap || 1, h.maxLev));
+  const margin = +($('#tMargin')?.value || S.margin);
+  const notional = margin * lev;
+  const px = h.mark;
+  const sz = floorSz(notional / px, h.szDecimals);
+  const liqMove = (1 / lev) * 100;
+  const sideOdds = s === 'long' ? a.bull.prob : a.bear.prob;
+  const against = s !== bestSide(a);
+  const gauge = Array.from({ length: cap }, (_, i) => `<i class="${i < lev ? 'on' : ''}"></i>`).join('');
+  return `<div class="ticket">
+    <h3>Trade on Hyperliquid <span class="net ${S.net === 'mainnet' ? 'main' : ''}">${S.net}</span></h3>
+    <div class="side">
+      <button type="button" class="long" data-side="long" aria-pressed="${s === 'long'}">Long<small>${a.bull.prob}% bull</small></button>
+      <button type="button" class="short" data-side="short" aria-pressed="${s === 'short'}">Short<small>${a.bear.prob}% bear</small></button>
+    </div>
+    <div class="levrow"><div class="levbig">${lev}×</div><div style="flex:1;display:flex;flex-direction:column;gap:6px"><div class="gauge">${gauge}</div>
+      <div class="levnote">${rec === 0 ? `Win odds ${winOdds(a)}% are under your ${S.floor}% skip line, so the desk says <b>no trade</b>. Placing it anyway uses 1×.` : levOverride ? `Manual leverage (AI suggested ${rec}×).` : `Set from ${winOdds(a)}% win odds with a ${cap}× cap.`}${against ? ' <span class="dn">You are trading against the AI\'s pick.</span>' : ''}</div></div></div>
+    <div class="grid2">
+      <div class="field"><label for="tMargin">Margin</label><div class="inp"><input id="tMargin" type="number" min="1" step="1" value="${margin}"><span>USD</span></div></div>
+      <div class="field"><label for="tLev">Leverage</label><div class="inp"><input id="tLev" type="number" min="1" max="${h.maxLev}" step="1" value="${lev}"><span>×</span></div></div>
+    </div>
+    <div class="calc">
+      <span>Position size</span><b>${fmtPx(notional)} · ${sz} ${esc(h.name)}</b>
+      <span>Entry (approx)</span><b>${fmtPx(px)}${h.scale === 1000 ? ' per 1,000' : ''}</b>
+      <span>Rough liquidation move</span><b class="dn">${s === 'long' ? '−' : '+'}${liqMove.toFixed(0)}% (isolated) · cross uses your full balance</b>
+      <span>AI target if right</span><b class="up">${fmtPx(s === 'long' ? a.bull.target : a.bear.target)} → ${fmtPx(notional * Math.abs((s === 'long' ? a.bull.target : a.bear.target) / c.current_price - 1))} profit</b>
+    </div>
+    ${notional < 10 ? '<div class="err">Hyperliquid needs at least $10 position size. Raise margin or leverage.</div>' : ''}
+    ${pendingConfirm ? `<div class="confirm">
+        <div><b>${s === 'long' ? 'Buy' : 'Sell'} ${sz} ${esc(h.name)}</b> at market (max ${S.slip}% slippage), ${lev}× cross, on <b>${S.net}</b>.${S.net === 'mainnet' ? ' <span class="dn">This uses real money.</span>' : ''}</div>
+        <div class="row"><button class="btn" id="cancelOrder">Cancel</button><button class="btn gold" id="placeOrder">Place ${s} · ${sideOdds}%</button></div>
+      </div>` : `<button class="btn gold" id="reviewOrder" ${notional < 10 ? 'disabled' : ''}>Review ${s} ${lev}×</button>`}
+    ${lastResult ? `<div class="result ${lastResult.ok ? 'ok' : 'bad'}">${esc(lastResult.msg)}</div>` : ''}
+  </div>`;
+}
+
+function positionsHTML() {
+  const ps = (account?.assetPositions || []).map(x => x.position).filter(p => +p.szi !== 0);
+  if (!ps.length) return '';
+  return `<div class="pos"><div class="label">Open positions · ${S.net}</div>${ps.map(p => {
+    const long = +p.szi > 0, pnl = +p.unrealizedPnl;
+    return `<div class="posrow"><span class="chip ${long ? 'bull' : 'bear'}">${long ? 'L' : 'S'} ${p.leverage?.value || ''}×</span><span>${esc(p.coin)} ${Math.abs(+p.szi)} @ ${(+p.entryPx).toPrecision(5)}</span><span class="${cls(pnl)}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span><button class="btn" data-close="${esc(p.coin)}" data-szi="${p.szi}" style="padding:3px 8px;font-size:12px">Close</button></div>`;
+  }).join('')}</div>`;
+}
+
+function wireSheet(c, h, a) {
+  $('#closeSheet')?.addEventListener('click', () => { $('#sheet').classList.remove('open'); });
+  $('#runAI')?.addEventListener('click', () => runOne(c, true));
+  document.querySelectorAll('[data-hz]').forEach(b => b.addEventListener('click', () => { horizon = b.dataset.hz; levOverride = null; side = null; pendingConfirm = false; lastResult = null; renderSheet(); renderTable(); }));
+  document.querySelectorAll('[data-side]').forEach(b => b.addEventListener('click', () => { side = b.dataset.side; pendingConfirm = false; renderSheet(); }));
+  $('#tMargin')?.addEventListener('change', () => { pendingConfirm = false; renderSheet(); });
+  $('#tLev')?.addEventListener('change', e => { const v = Math.round(+e.target.value); levOverride = v >= 1 ? Math.min(v, h.maxLev) : null; pendingConfirm = false; renderSheet(); });
+  $('#reviewOrder')?.addEventListener('click', () => {
+    if (!S.agent) { openSettings('Add your Hyperliquid API wallet key to place orders.'); return; }
+    pendingConfirm = true; lastResult = null; renderSheet();
+  });
+  $('#cancelOrder')?.addEventListener('click', () => { pendingConfirm = false; renderSheet(); });
+  $('#placeOrder')?.addEventListener('click', async e => {
+    e.target.disabled = true; e.target.textContent = 'Signing…';
+    const s = side || bestSide(a);
+    const lev = levOverride || levFor(a, h) || 1;
+    const margin = +$('#tMargin').value;
+    try {
+      await exchange({ type: 'updateLeverage', asset: h.asset, isCross: true, leverage: lev });
+      const mids = await info({ type: 'allMids' });
+      const { st, sz } = await marketOrder(h, s === 'long', (margin * lev) / +mids[h.name], false);
+      if (st.filled) lastResult = { ok: true, msg: `Filled ${st.filled.totalSz} ${h.name} @ ${st.filled.avgPx} · ${lev}× ${s}` };
+      else if (st.resting) lastResult = { ok: true, msg: `Order resting (oid ${st.resting.oid}).` };
+      else lastResult = { ok: false, msg: 'Not filled: ' + JSON.stringify(st) };
+    } catch (err) { lastResult = { ok: false, msg: friendly(err) }; }
+    pendingConfirm = false; renderSheet(); loadAccount();
+  });
+  document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', async () => {
+    if (!S.agent) { openSettings('Add your Hyperliquid API wallet key to close positions.'); return; }
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Confirm close'; b.classList.add('gold'); return; }
+    b.disabled = true; b.textContent = 'Closing…';
+    const coinName = b.dataset.close, szi = +b.dataset.szi;
+    const hh = Object.values(hl).find(x => x.name === coinName);
+    try {
+      if (!hh) throw new Error('Unknown market ' + coinName);
+      const { st } = await marketOrder(hh, szi < 0, Math.abs(szi), true);
+      lastResult = { ok: true, msg: st.filled ? `Closed ${st.filled.totalSz} ${coinName} @ ${st.filled.avgPx}` : 'Close sent: ' + JSON.stringify(st) };
+    } catch (err) { lastResult = { ok: false, msg: friendly(err) }; }
+    loadAccount();
+  }));
+}
+function friendly(err) {
+  const m = String(err?.message || err);
+  if (/does not exist/i.test(m) || /User or API Wallet/i.test(m)) return m + '\nCheck that the API wallet is authorized for this account on ' + S.net + '.';
+  if (/Insufficient margin/i.test(m)) return m + '\nDeposit more USDC or lower the margin.';
+  if (/invalid private key|invalid BytesLike/i.test(m)) return 'The API wallet key isn\'t a valid private key.';
+  return m;
+}
+
+async function runOne(c, force) {
+  if (isStable(c)) return;
+  const id = c.id + '|' + horizon;
+  if (force) delete analyses[id];
+  delete errors[id];
+  levOverride = null; side = null; pendingConfirm = false; lastResult = null;
+  const p = analyze(c, horizon).catch(e => { errors[id] = e.message; });
+  renderTable(); if (selected && selected.id === c.id) renderSheet();
+  await p;
+  if (selected && selected.id === c.id) renderSheet();
+  renderTable();
+}
+
+function select(id) {
+  selected = coins.find(c => c.id === id) || null;
+  side = null; levOverride = null; pendingConfirm = false; lastResult = null;
+  renderTable(); renderSheet();
+  $('#sheet').classList.add('open');
+  $('#sheet').scrollTop = 0;
+}
+
+// ---------- settings dialog ----------
+function openSettings(msg) {
+  $('#sKey').value = S.key; $('#sModel').value = S.model; $('#sHz').value = S.hz; $('#sNet').value = S.net;
+  $('#sAddr').value = S.addr; $('#sAgent').value = S.agent; $('#sCap').value = S.cap; $('#sMargin').value = S.margin;
+  $('#sSlip').value = S.slip; $('#sFloor').value = S.floor; $('#sRemember').checked = S.remember;
+  const p = $('#settingsForm p'); if (msg) { p.dataset.orig ??= p.textContent; p.innerHTML = '<b style="color:var(--gold)">' + esc(msg) + '</b>'; }
+  $('#settings').showModal();
+}
+$('#settings').addEventListener('close', async () => {
+  const p = $('#settingsForm p'); if (p.dataset.orig) p.textContent = p.dataset.orig;
+  if ($('#settings').returnValue !== 'save') return;
+  const netChanged = $('#sNet').value !== S.net;
+  Object.assign(S, {
+    key: $('#sKey').value.trim(), model: $('#sModel').value, hz: $('#sHz').value, net: $('#sNet').value,
+    addr: $('#sAddr').value.trim(), agent: $('#sAgent').value.trim(),
+    cap: Math.max(1, Math.round(+$('#sCap').value || 1)), margin: Math.max(1, +$('#sMargin').value || 25),
+    slip: Math.min(10, Math.max(0.1, +$('#sSlip').value || 1)), floor: Math.min(80, Math.max(50, +$('#sFloor').value || 55)),
+    remember: $('#sRemember').checked
+  });
+  if (S.agent && !S.addr) { try { S.addr = new ethers.Wallet(S.agent).address; } catch (e) {} }
+  persist(); updateNet();
+  if (netChanged) { try { await loadHL(); } catch (e) {} }
+  renderTable(); renderSheet(); loadAccount();
+});
+function updateNet() {
+  const b = $('#netBadge'); b.textContent = S.net; b.classList.toggle('main', S.net === 'mainnet');
+}
+
+// ---------- events ----------
+$('#openSettings').addEventListener('click', () => openSettings());
+$('#q').addEventListener('input', renderTable);
+$('#sort').addEventListener('change', renderTable);
+$('#hlOnly').addEventListener('change', renderTable);
+$('#tbody').addEventListener('click', e => { const tr = e.target.closest('tr.r'); if (tr) select(tr.dataset.id); });
+$('#tbody').addEventListener('keydown', e => { if (e.key === 'Enter') { const tr = e.target.closest('tr.r'); if (tr) select(tr.dataset.id); } });
+$('#analyzeTop').addEventListener('click', async () => {
+  if (!S.key) { openSettings('Add your Anthropic API key to run the AI analysis.'); return; }
+  const btn = $('#analyzeTop'); btn.disabled = true;
+  const todo = coins.filter(c => !isStable(c) && !getA(c)).slice(0, 20);
+  let done = 0;
+  btn.textContent = `Analyzing 0/${todo.length}`;
+  const queue = todo.slice();
+  async function worker() { while (queue.length) { const c = queue.shift(); await runOne(c, false); done++; btn.textContent = `Analyzing ${done}/${todo.length}`; } }
+  await Promise.all([worker(), worker(), worker()]);
+  btn.disabled = false; btn.textContent = 'Analyze top 20';
+  $('#sort').value = 'edge'; renderTable();
+});
+
+// ---------- boot ----------
+updateNet();
+(async () => {
+  const errs = [];
+  await Promise.all([loadCoins().catch(e => errs.push(e.message)), loadHL().catch(e => errs.push(e.message))]);
+  if (!coins.length) { $('#tbody').innerHTML = `<tr><td colspan="7"><div class="err">Couldn't load the top 100. ${esc(errs.join(' · '))}</div></td></tr>`; return; }
+  if (errs.length) $('#notice').innerHTML += ' <span class="dn">' + esc(errs.join(' · ')) + '</span>';
+  renderTable();
+  if (innerWidth > 900) select(coins[0].id);
+  loadAccount();
+  if (!S.key) $('#notice').innerHTML = '<b>Start in Settings:</b> add an Anthropic API key for the AI odds and a Hyperliquid API wallet to trade. ' + $('#notice').innerHTML;
+  setInterval(async () => { try { await Promise.all([loadCoins(), loadHL()]); renderTable(); if (selected) { selected = coins.find(c => c.id === selected.id) || selected; } } catch (e) {} loadAccount(); }, 60000);
+})();
+})();
+</script>
+</body>
+</html>
