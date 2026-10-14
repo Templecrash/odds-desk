@@ -189,6 +189,28 @@ details.box > div{padding:0 12px 12px}
 .pos{display:flex;flex-direction:column;gap:6px}
 .posrow{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;font:12.5px var(--mono);padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--ink)}
 
+.hard{font:700 9.5px var(--mono);letter-spacing:.05em;padding:1px 5px;border-radius:2px;white-space:nowrap}
+.hard.up{background:var(--bull);color:#06281a} .hard.down{background:var(--bear);color:#3a0a10} .hard.both{background:var(--gold);color:#1a1405}
+.qtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.qtable th{position:static;background:none;padding:4px 6px;text-align:left}
+.qtable td{padding:6px;border-bottom:1px solid var(--line);text-align:left;white-space:normal;vertical-align:middle}
+.qtable td.n{text-align:right;font-family:var(--mono);white-space:nowrap}
+.qtable tr.off td{color:var(--faint)}
+.vbar{position:relative;width:64px;height:8px;background:var(--line);border-radius:2px;display:inline-block;vertical-align:middle}
+.vbar i{position:absolute;top:0;bottom:0;border-radius:2px}
+.vbar::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;border-left:1px solid var(--muted)}
+.build{font-size:12.5px;color:var(--muted);line-height:1.5;border-left:2px solid var(--gold);padding-left:10px}
+.build b{color:var(--fg);font-family:var(--mono);font-weight:600}
+.lv{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.lv div{background:var(--ink);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.lv span{font:500 10px var(--mono);color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+.lv b{font:600 14px var(--mono)}
+.lv small{font:11px var(--mono);color:var(--muted)}
+.hardbox{border:1px solid var(--line);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:13px;background:var(--ink)}
+.hardbox.up{border-color:var(--bull)} .hardbox.down{border-color:var(--bear)} .hardbox.both{border-color:var(--gold)}
+.hardbox ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.optrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--muted)}
+@media (max-width:560px){ .lv{grid-template-columns:repeat(2,1fr)} }
 dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100% - 32px)}
 dialog::backdrop{background:rgba(5,8,11,.7)}
 .dlg{padding:20px;display:flex;flex-direction:column;gap:14px}
@@ -276,7 +298,7 @@ dialog::backdrop{background:rgba(5,8,11,.7)}
         <div class="field"><label for="sQuick">List model (all 100 coins)</label><select id="sQuick"><option value="claude-haiku-5-5">Claude Haiku 5.5 (fast, cheap)</option><option value="claude-sonnet-5-5">Claude Sonnet 5.5</option></select></div>
         <div class="field"><label for="sDeep">Deep-dive model (with web sources)</label><select id="sDeep"><option value="claude-sonnet-5-5">Claude Sonnet 5.5</option><option value="claude-opus-5-5">Claude Opus 5.5</option><option value="claude-haiku-5-5">Claude Haiku 5.5</option></select></div>
       </div>
-      <div class="field"><label for="sHz">Default horizon</label><select id="sHz"><option value="24 hours">24 hours</option><option value="7 days">7 days</option><option value="30 days">30 days</option></select></div>
+      <div class="field"><label for="sHz">Default horizon</label><select id="sHz"><option value="10 min">10 minutes (scalp)</option><option value="24 hours">24 hours</option><option value="7 days">7 days</option><option value="30 days">30 days</option></select></div>
       <p>Odds for every coin are generated automatically and cached for 6 hours. Opening a coin runs a deeper read that searches the web and lists its sources.</p>
     </fieldset>
     <fieldset>
@@ -293,6 +315,7 @@ dialog::backdrop{background:rgba(5,8,11,.7)}
         <div class="field"><label for="sMargin">Default margin</label><div class="inp"><input id="sMargin" type="number" min="1" step="1" value="25"><span>USD</span></div></div>
         <div class="field"><label for="sSlip">Max slippage</label><div class="inp"><input id="sSlip" type="number" min="0.1" max="10" step="0.1" value="1"><span>%</span></div></div>
         <div class="field"><label for="sFloor">Skip below win odds</label><div class="inp"><input id="sFloor" type="number" min="50" max="80" step="1" value="55"><span>%</span></div></div>
+        <div class="field"><label for="sFee">Taker fee per side</label><div class="inp"><input id="sFee" type="number" min="0" max="0.2" step="0.005" value="0.045"><span>%</span></div></div>
         <div class="field"><label for="sMinConf">Skip below confidence</label><div class="inp"><input id="sMinConf" type="number" min="0" max="100" step="5" value="40"><span>/100</span></div></div>
       </div>
       <p>Leverage = max leverage × edge × confidence, where edge = (win odds − 50) ÷ 25 (capped at 1) and confidence is 0–1. Example with a 5× cap: 70% odds at 80 confidence → 5 × 0.8 × 0.8 = 3×. Below either skip line the desk recommends no trade.</p>
@@ -302,16 +325,18 @@ dialog::backdrop{background:rgba(5,8,11,.7)}
   </form>
 </dialog>
 
+<script src="quant.js"></script>
 <script>
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
 const STABLES = new Set(['usdt','usdc','dai','usde','fdusd','usds','pyusd','tusd','usd1','rlusd','usdtb','bsc-usd','susde','usdd','gusd','usdp','frax','usdx','usdg','buidl','usyc','susds','usd0','eurc','xaut','paxg','wbtc','weth','steth','wsteth','weeth','cbbtc','reth','wbeth','lbtc','jitosol','bnsol','solvbtc','meth','ezeth','rseth','msol','clbtc','tbtc','lseth','oseth','figr_heloc','usdf','usdai','syrupusdc','usd1-wlfi','global-dollar','hashnote-usyc','ripple-usd','ondo-us-dollar-yield','blackrock-usd-institutional-digital-liquidity-fund','falcon-finance','spiko-amundi-overnight-swap-fund-eur','united-stables','bfusd','usdgo','superstate-short-duration-us-government-securities-fund-ustb','open-usd','gho','eutbl','tether-gold','pax-gold','figure-heloc','blockchain-capital','paypal-usd','ethena-usde','usds']);
 const TTL = 6 * 3600e3;
-const HZS = ['24 hours', '7 days', '30 days'];
+const HZS = ['10 min', '24 hours', '7 days', '30 days'];
+const SCALP = '10 min';
 
 // ---------- settings ----------
-const DEF = { key:'', quick:'claude-haiku-5-5', deep:'claude-sonnet-5-5', hz:'7 days', net:'testnet', addr:'', agent:'', cap:5, margin:25, slip:1, floor:55, minConf:40, remember:false };
+const DEF = { key:'', quick:'claude-haiku-5-5', deep:'claude-sonnet-5-5', hz:'10 min', net:'testnet', addr:'', agent:'', cap:5, margin:25, slip:1, floor:55, minConf:40, fee:0.045, remember:false };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem('od.settings') || '{}')); } catch (e) {}
 try { const ss = JSON.parse(sessionStorage.getItem('od.settings') || 'null'); if (ss) Object.assign(S, ss); } catch (e) {}
@@ -364,6 +389,12 @@ function fmtPx(p) {
   if (p >= 1) return '$' + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (p >= 0.01) return '$' + p.toFixed(4);
   return '$' + p.toPrecision(3);
+}
+function fmtLvl(p) {
+  if (p == null || !isFinite(p)) return '—';
+  if (p >= 10000) return '$' + p.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const d = Math.max(0, 4 - Math.floor(Math.log10(Math.abs(p))));
+  return '$' + p.toLocaleString('en-US', { minimumFractionDigits: Math.min(d, 10), maximumFractionDigits: Math.min(d, 10) });
 }
 function fmtPct(x, d = 1) { if (x == null || isNaN(x)) return '—'; return (x > 0 ? '+' : '') + x.toFixed(d) + '%'; }
 function fmtBig(x) { if (!x) return '—'; if (x >= 1e12) return '$' + (x/1e12).toFixed(2) + 'T'; if (x >= 1e9) return '$' + (x/1e9).toFixed(1) + 'B'; if (x >= 1e6) return '$' + (x/1e6).toFixed(1) + 'M'; return '$' + Math.round(x).toLocaleString(); }
@@ -420,6 +451,151 @@ async function loadHL() {
   });
 }
 function hlFor(c) { return isStable(c) ? null : hl[c.symbol.toUpperCase()] || null; }
+
+// ---------- quant engine: daily history -> strategies, backtest, levels, run-hard ----------
+let hlMain = {};                 // mainnet markets (price history and funding come from mainnet even on testnet)
+const quantRes = {};             // id -> { q, src, at }
+let quantRunning = false, qnDone = 0, qnTotal = 0;
+async function hlInfoNet(net, body) {
+  const payload = JSON.stringify(body);
+  if (proxyOK) { try { const r = await fetch(`/api/hl?net=${net}&ep=info`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload }); if (r.ok) return r.json(); } catch (e) {} }
+  const host = net === 'mainnet' ? 'https://api.hyperliquid.xyz' : 'https://api.hyperliquid-testnet.xyz';
+  const r = await fetch(host + '/info', { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload });
+  if (!r.ok) throw new Error('Hyperliquid ' + r.status); return r.json();
+}
+async function loadHLMain() {
+  const [meta, ctxs] = await hlInfoNet('mainnet', { type: 'metaAndAssetCtxs' });
+  hlMain = {};
+  meta.universe.forEach((u, i) => { if (u.isDelisted) return; const key = /^k[A-Z]/.test(u.name) ? u.name.slice(1) : u.name; hlMain[key.toUpperCase()] = { name: u.name, funding: +(ctxs[i] || {}).funding }; });
+}
+const mainFor = c => isStable(c) ? null : hlMain[c.symbol.toUpperCase()] || null;
+async function history(c) {
+  const ck = 'od.h2|' + c.id;
+  try { const s = JSON.parse(localStorage.getItem(ck) || 'null'); if (s && Date.now() - s.at < 3 * 3600e3) return s; } catch (e) {}
+  const m = mainFor(c), days = [], closes = [], vols = [];
+  let src;
+  if (m) {
+    const end = Date.now();
+    const k = await hlInfoNet('mainnet', { type: 'candleSnapshot', req: { coin: m.name, interval: '1d', startTime: end - 400 * 864e5, endTime: end } });
+    const per = /^k[A-Z]/.test(m.name) ? 1000 : 1; // k-markets quote per 1,000 tokens
+    (k || []).forEach(x => { days.push(Math.floor(x.t / 864e5)); closes.push(+x.c / per); vols.push(+x.v * per); });
+    src = 'Hyperliquid daily candles';
+  }
+  if (closes.length < 130) {
+    days.length = 0; closes.length = 0; vols.length = 0;
+    let r = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      r = await fetch('/api/cgchart?id=' + encodeURIComponent(c.id));
+      if (r.status !== 429) break;
+      await new Promise(res => setTimeout(res, 20000));
+    }
+    if (!r.ok) throw new Error('price history ' + r.status);
+    const j = await r.json();
+    const vmap = new Map((j.total_volumes || []).map(([t, v]) => [Math.floor(t / 864e5), v]));
+    (j.prices || []).forEach(([t, p]) => { const d = Math.floor(t / 864e5); if (days.length && days[days.length - 1] === d) { closes[closes.length - 1] = p; vols[vols.length - 1] = vmap.get(d) || 0; } else { days.push(d); closes.push(p); vols.push(vmap.get(d) || 0); } });
+    src = 'CoinGecko daily closes';
+  }
+  const s = { at: Date.now(), days, closes, vols, src };
+  try { localStorage.setItem(ck, JSON.stringify(s)); } catch (e) {}
+  return s;
+}
+async function runQuant() {
+  if (quantRunning || !coins.length) return;
+  quantRunning = true;
+  const list = coins.filter(c => !isStable(c));
+  const btcCoin = list.find(c => c.id === 'bitcoin');
+  const ordered = btcCoin ? [btcCoin, ...list.filter(c => c !== btcCoin)] : list;
+  qnTotal = ordered.length; qnDone = 0; renderStatus();
+  let btcMap = null;
+  const work = async c => {
+    try {
+      const h = await history(c);
+      if (c.id === 'bitcoin') btcMap = new Map(h.days.map((d, i) => [d, h.closes[i]]));
+      // use the live price as today's close so levels match the screen
+      const closes = h.closes.slice(); if (closes.length && c.current_price) closes[closes.length - 1] = c.current_price;
+      const q = Quant.analyze(h.days, closes, h.vols, c.id === 'bitcoin' ? null : btcMap);
+      if (q) quantRes[c.id] = { q, src: h.src, at: Date.now() };
+    } catch (e) { quantRes[c.id] = { err: e.message, at: Date.now() }; }
+    qnDone++; renderStatus(); scheduleRender();
+    if (selected && selected.id === c.id) renderSheet();
+  };
+  if (ordered.length) await work(ordered[0]);
+  const hlQ = ordered.slice(1).filter(c => mainFor(c)), cgQ = ordered.slice(1).filter(c => !mainFor(c));
+  const hlWorker = async () => { while (hlQ.length) await work(hlQ.shift()); };
+  const cgWorker = async () => { while (cgQ.length) { await work(cgQ.shift()); await new Promise(r => setTimeout(r, 1200)); } };
+  await Promise.all([hlWorker(), hlWorker(), hlWorker(), cgWorker()]);
+  quantRunning = false; renderStatus(); scheduleRender(); if (selected) renderSheet();
+}
+// ---------- 10-minute scalp data: 1-minute candles, order book, trade tape ----------
+const bars1m = {};      // id -> bars
+const scalpRes = {};    // id -> { R, at, err }
+const microRes = {};    // id -> { M, at }
+let scalpRunning = false, scDone = 0, scTotal = 0;
+async function loadBars(c, full) {
+  const m = mainFor(c); if (!m) return null;
+  const end = Date.now(), have = bars1m[c.id];
+  const start = !full && have && have.length ? have[have.length - 1].t : end - 1500 * 60e3;
+  const k = await hlInfoNet('mainnet', { type: 'candleSnapshot', req: { coin: m.name, interval: '1m', startTime: start, endTime: end } });
+  const per = /^k[A-Z]/.test(m.name) ? 1000 : 1;
+  const fresh = (k || []).map(x => ({ t: x.t, o: +x.o / per, h: +x.h / per, l: +x.l / per, c: +x.c / per, v: +x.v * per }));
+  let arr = !full && have ? have.filter(b => b.t < (fresh[0]?.t ?? Infinity)).concat(fresh) : fresh;
+  if (arr.length > 1600) arr = arr.slice(arr.length - 1600);
+  bars1m[c.id] = arr;
+  return arr;
+}
+function computeScalp(c) {
+  const b = bars1m[c.id];
+  if (!b || b.length < 200) { scalpRes[c.id] = { err: 'not enough 1-minute history', at: Date.now() }; return; }
+  // drop the still-forming minute so every bar used is complete
+  const done = b[b.length - 1].t + 60e3 > Date.now() ? b.slice(0, -1) : b;
+  const R = Quant.scalp(done, { fee: (S.fee ?? 0.045) / 100 });
+  scalpRes[c.id] = R ? { R, at: Date.now() } : { err: 'not enough 1-minute history', at: Date.now() };
+}
+async function runScalp(full) {
+  if (scalpRunning || !coins.length) return;
+  scalpRunning = true;
+  const list = coins.filter(c => mainFor(c));
+  scTotal = list.length; scDone = 0; renderStatus();
+  for (const c of list) {
+    try { await loadBars(c, full || !bars1m[c.id]); computeScalp(c); }
+    catch (e) { scalpRes[c.id] = { err: e.message, at: Date.now() }; }
+    scDone++; renderStatus(); if (horizon === SCALP) scheduleRender();
+    if (selected && selected.id === c.id && horizon === SCALP) renderSheet();
+    await new Promise(r => setTimeout(r, 350));
+  }
+  scalpRunning = false; renderStatus();
+}
+async function loadMicro(c) {
+  const m = mainFor(c); if (!m) return;
+  const [book, trades] = await Promise.all([hlInfoNet('mainnet', { type: 'l2Book', coin: m.name }), hlInfoNet('mainnet', { type: 'recentTrades', coin: m.name })]);
+  const lv = book && book.levels ? book.levels : [[], []];
+  const bk = { bids: lv[0].map(x => [+x.px, +x.sz]), asks: lv[1].map(x => [+x.px, +x.sz]) };
+  const cutoff = Date.now() - 3 * 60e3;
+  const tape = (trades || []).filter(t => t.time >= cutoff).map(t => ({ buy: t.side === 'B', sz: +t.sz }));
+  microRes[c.id] = { M: Quant.micro(bk, tape), at: Date.now(), trades: tape.length };
+}
+function scalpOddsFor(c) {
+  const r = scalpRes[c.id]; if (!r || !r.R) return null;
+  const mi = microRes[c.id] && Date.now() - microRes[c.id].at < 60e3 ? microRes[c.id].M : null;
+  const O = Quant.scalpOdds(r.R, mi);
+  const L = O.prob >= 50 ? r.R.levelsLong : r.R.levelsShort;
+  const why = r.R.readings.filter(x => x.weight > 0 && Math.abs(x.vote) >= 0.2).sort((a, b) => b.weight * Math.abs(b.vote) - a.weight * Math.abs(a.vote));
+  const sim = r.R.sim;
+  return {
+    bull: { prob: O.prob, target: r.R.levelsLong.tp1, why: why.filter(x => x.vote > 0).slice(0, 3).map(x => x.name + ': ' + x.label) },
+    bear: { prob: 100 - O.prob, target: r.R.levelsShort.tp1, why: why.filter(x => x.vote < 0).slice(0, 3).map(x => x.name + ': ' + x.label) },
+    conf: O.conf, hz: SCALP, model: 'Scalp engine', at: r.at, px: r.R.price,
+    summary: sim.trades ? `Backtest of this exact 10-minute trade: ${sim.trades} trades, ${Math.round(sim.winRate * 100)}% winners, ${sim.expR >= 0 ? '+' : ''}${sim.expR.toFixed(2)}R average after fees.` : 'Not enough signals in the backtest window to judge this setup.',
+    scalp: { R: r.R, O, mi, L }
+  };
+}
+function catalystsFor(c) { return (desk && desk.catalysts && desk.catalysts[c.id]) || []; }
+function hardFor(c) {
+  if (isStable(c)) return null;
+  const r = quantRes[c.id];
+  const m = mainFor(c);
+  return Quant.runHard(r && r.q, m ? m.funding : null, catalystsFor(c), Date.now());
+}
 async function loadAccount() {
   if (!S.addr) { account = null; renderAcct(); return; }
   try { account = await info({ type: 'clearinghouseState', user: S.addr }); } catch (e) { account = null; }
@@ -541,12 +717,28 @@ async function runDeep(c, hz = horizon) {
   inflight.set(k, p);
   try { await p; } finally { inflight.delete(k); }
 }
-function odds(c, hz = horizon) { const d = store[dk(c, hz)], q = store[qk(c, hz)]; if (d && fresh(dk(c, hz))) return d; return q || d || null; }
+function aiOdds(c, hz = horizon) { const d = store[dk(c, hz)], q = store[qk(c, hz)]; if (d && fresh(dk(c, hz))) return d; return q || d || null; }
+// Final odds = AI read blended with the quant engine (when 7-day history is available).
+function odds(c, hz = horizon) {
+  if (hz === SCALP) return isStable(c) ? null : scalpOddsFor(c);
+  const a = aiOdds(c, hz), r = quantRes[c.id];
+  if (!r || !r.q || hz !== '7 days') return a;
+  const m = mainFor(c);
+  const b = Quant.blend(a, r.q, m ? m.funding : null);
+  const base = a || { bull: { target: null, why: [] }, bear: { target: null, why: [] }, summary: 'Quant read only; no AI odds for this coin yet.', hz, model: 'Quant engine', at: r.at };
+  return Object.assign({}, base, { bull: Object.assign({}, base.bull, { prob: b.bullProb }), bear: Object.assign({}, base.bear, { prob: 100 - b.bullProb }), conf: b.conf, blend: b.parts, ai: a });
+}
+function levelsFor(c, a) {
+  const r = quantRes[c.id];
+  if (!r || !r.q || !a) return null;
+  return Quant.levels(c.current_price, r.q, a.bull.prob >= a.bear.prob);
+}
 function bestSide(a) { return a.bull.prob >= a.bear.prob ? 'long' : 'short'; }
 function winOdds(a) { return Math.max(a.bull.prob, a.bear.prob); }
 function conviction(a) { return a ? (winOdds(a) - 50) * a.conf : -1; }
-function levFor(a, h) {
+function levFor(a, h, L) {
   if (winOdds(a) < S.floor || a.conf < S.minConf) return 0;
+  if (L && L.valid) h = Object.assign({}, h, { maxLev: Math.min(h ? h.maxLev : 50, L.maxLev) });
   const cap = Math.max(1, Math.min(+S.cap || 1, h ? h.maxLev : 50));
   const edge = Math.min(1, (winOdds(a) - 50) / 25);
   return Math.max(1, Math.min(cap, Math.round(cap * edge * a.conf / 100)));
@@ -555,6 +747,7 @@ function levFor(a, h) {
 // ---------- background queue: quick odds for every coin ----------
 let qRunning = false, qStop = '', qDone = 0, qTotal = 0;
 async function runQueue(force) {
+  if (horizon === SCALP) { renderStatus(); return; }
   if (!S.key || !coins.length) { renderStatus(); return; }
   if (qRunning) return;
   qRunning = true; qStop = '';
@@ -583,6 +776,9 @@ async function runQueue(force) {
 }
 function renderStatus() {
   const el = $('#aiStatus');
+  const qn = quantRunning ? `<span>Quant ${qnDone}/${qnTotal}</span><span class="track"><span style="width:${qnTotal ? qnDone / qnTotal * 100 : 0}%"></span></span>` : '';
+  if (horizon === SCALP) { el.hidden = false; el.innerHTML = scalpRunning ? `<span>10-min engine ${scDone}/${scTotal}</span><span class="track"><span style="width:${scTotal ? scDone / scTotal * 100 : 0}%"></span></span>` : `<span>10-min odds live · ${Object.values(scalpRes).filter(x => x.R).length} coins</span>`; return; }
+  if (quantRunning && !qRunning) { el.hidden = false; el.innerHTML = qn; return; }
   if (!S.key) {
     if (!desk) { el.hidden = true; return; }
     el.hidden = false;
@@ -646,13 +842,19 @@ function oddsCells(c) {
   if (!a) {
     const running = inflight.has(qk(c));
     const err = errors[qk(c)];
-    const t = !S.key ? 'add key' : err ? 'error' : running ? 'thinking…' : 'queued';
+    const t = horizon === SCALP ? (!mainFor(c) ? 'not on HL' : scalpRes[c.id]?.err ? 'no data' : 'loading…') : !S.key ? 'add key' : err ? 'error' : running ? 'thinking…' : 'queued';
     return `<td><span class="pend${running ? ' run' : ''}"${err ? ` title="${esc(err)}"` : ''}>${t}</span></td><td></td>`;
   }
   const dim = winOdds(a) < S.floor || a.conf < S.minConf;
   const dots = Array.from({ length: 5 }, (_, i) => `<i class="${i < Math.round(a.conf / 20) ? 'on' : ''}"></i>`).join('');
   return `<td><span class="oc${dim ? ' dim' : ''}" title="${esc(a.summary)}"><span class="up">${a.bull.prob}%</span><span class="sp"><span style="width:${a.bull.prob}%"></span></span><span class="dn">${a.bear.prob}%</span></span></td>
-    <td><span class="conf"><span class="dots">${dots}</span>${a.conf}</span></td>`;
+    <td><span class="conf" title="${a.scalp ? `Backtest ${a.scalp.R.sim.trades} trades · ${a.scalp.R.sim.expR.toFixed(2)}R avg after fees` : a.blend ? `AI ${a.blend.aiConf ?? '—'} · Quant ${a.blend.qConf}` : 'AI only (quant pending)'}"><span class="dots">${dots}</span>${a.conf}</span></td>`;
+}
+function hardChip(c) {
+  const h = hardFor(c); if (!h || !h.dir) return '';
+  const label = h.dir === 'up' ? '▲ RUN' : h.dir === 'down' ? '▼ RISK' : '⇅ MOVE';
+  const tip = [...h.up, ...h.down, ...h.both].join(' ');
+  return `<span class="hard ${h.dir}" title="${esc(tip)}">${label}</span>`;
 }
 function renderTable() {
   if (!coins.length) return;
@@ -672,7 +874,7 @@ function renderTable() {
     const d24 = c.price_change_percentage_24h_in_currency;
     return `<tr class="r${selected && selected.id === c.id ? ' sel' : ''}" data-id="${esc(c.id)}" tabindex="0">
       <td class="rk num">${c.market_cap_rank ?? ''}</td>
-      <td class="l"><div class="coin"><img src="${esc(c.image)}" alt="" loading="lazy"><span class="sym">${esc(c.symbol.toUpperCase())}</span><span class="nm">${esc(c.name)}</span>${hlFor(c) ? '<span class="hl">HL</span>' : ''}</div></td>
+      <td class="l"><div class="coin"><img src="${esc(c.image)}" alt="" loading="lazy"><span class="sym">${esc(c.symbol.toUpperCase())}</span><span class="nm">${esc(c.name)}</span>${hlFor(c) ? '<span class="hl">HL</span>' : ''}${hardChip(c)}</div></td>
       <td class="num">${fmtPx(c.current_price)}</td>
       <td class="num col-sm ${cls(d24)}">${fmtPct(d24)}</td>
       <td class="col-wide">${spark(c.sparkline_in_7d?.price)}</td>
@@ -680,7 +882,7 @@ function renderTable() {
   }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No coins match.</td></tr>';
 }
 function renderHz() {
-  $('#hzSeg').innerHTML = HZS.map(x => `<button type="button" data-hz="${x}" aria-pressed="${x === horizon}">${x.replace(' hours', 'h').replace(' days', 'd')}</button>`).join('');
+  $('#hzSeg').innerHTML = HZS.map(x => `<button type="button" data-hz="${x}" aria-pressed="${x === horizon}">${x.replace(' hours', 'h').replace(' days', 'd').replace(' min', 'm')}</button>`).join('');
 }
 
 // ---------- sheet ----------
@@ -715,6 +917,96 @@ function inputsTable(i) {
   ];
   return `<table class="inputs">${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>`;
 }
+function quantBlock(c, a) {
+  const r = quantRes[c.id];
+  if (!r) return `<div class="thinking"><span class="dot"></span>Running the quant strategies on ${esc(c.name)}'s price history…</div>`;
+  if (r.err || !r.q) return `<div class="pend">Not enough price history to run the quant strategies${r.err ? ' (' + esc(r.err) + ')' : ''}.</div>`;
+  const q = r.q;
+  const dirTxt = Math.abs(q.S) < 0.1 ? 'no clear lean' : q.S > 0 ? '▲ leans bull' : '▼ leans bear';
+  const rows = q.readings.map(x => {
+    const w = Math.abs(x.vote) * 32, left = x.vote >= 0 ? 32 : 32 - w;
+    const col = x.vote >= 0 ? 'var(--bull)' : 'var(--bear)';
+    return `<tr class="${x.weight > 0 ? '' : 'off'}"><td>${esc(x.name)}<br><span class="pend">${esc(x.label)}</span></td>
+      <td><span class="vbar"><i style="left:${left}px;width:${w}px;background:${col}"></i></span></td>
+      <td class="n">${x.cnt ? Math.round(x.hit * 100) + '%' : '—'}<br><span class="pend">${x.cnt} calls</span></td>
+      <td class="n">${x.weight > 0 ? (x.weight * 100).toFixed(1) : 'off'}</td></tr>`;
+  }).join('');
+  const b = a && a.blend;
+  const build = b ? `<div class="build">How the final numbers were built: AI <b>${b.aiProb ?? '—'}/${b.aiProb != null ? 100 - b.aiProb : '—'}</b> at <b>${b.aiConf ?? '—'}</b> confidence, blended 50/50 with quant <b>${b.qProb}/${100 - b.qProb}</b> at <b>${b.qConf}</b>${b.bonus > 0 ? ', both point the same way (<b>+8</b>)' : b.bonus < 0 ? ', they disagree (<b>−12</b>)' : ''} → <b>${a.bull.prob}/${a.bear.prob}</b> at <b>${a.conf}</b> confidence.${b.fundNote ? ' ' + esc(b.fundNote) : ''}</div>` : '';
+  return `<div class="sechead"><span class="label">Quant &amp; technicals</span><span class="tag">${q.readings.length} strategies · backtested</span></div>
+    <p class="summary" style="font-size:13.5px">Composite ${dirTxt} (score ${q.S >= 0 ? '+' : ''}${q.S.toFixed(2)}). Out-of-sample backtest: it called the 7-day direction right <b>${Math.round(q.oos * 100)}%</b> of ${q.oosN} recent days it took a side. Strategies agree ${Math.round(q.agreement * 100)}%. 30-day volatility ${Math.round(q.vol * 100)}% a year.</p>
+    <div style="overflow-x:auto"><table class="qtable"><thead><tr><th>Strategy · today</th><th>Vote</th><th>7-day hit rate</th><th>Weight</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="pend">Weights come from each strategy's past hit rate on this coin; strategies at or below 50% are switched off. Data: ${esc(r.src)}, ${q.n} days.</div>
+    ${build}`;
+}
+function scalpBlock(c, a) {
+  const r = scalpRes[c.id];
+  if (!mainFor(c)) return `<div class="pend">${esc(c.name)} has no Hyperliquid market, so there's no 1-minute data to scalp on.</div>`;
+  if (!r) return `<div class="thinking"><span class="dot"></span>Loading 1-minute candles and backtesting the 10-minute trade…</div>`;
+  if (!r.R) return `<div class="pend">Couldn't run the 10-minute engine: ${esc(r.err || 'no data')}.</div>`;
+  const R = r.R, sim = R.sim, O = a.scalp.O, mi = a.scalp.mi;
+  const rows = R.readings.map(x => {
+    const w = Math.abs(x.vote) * 32, left = x.vote >= 0 ? 32 : 32 - w;
+    return `<tr class="${x.weight > 0 ? '' : 'off'}"><td>${esc(x.name)}<br><span class="pend">${esc(x.label)}</span></td>
+      <td><span class="vbar"><i style="left:${left}px;width:${w}px;background:${x.vote >= 0 ? 'var(--bull)' : 'var(--bear)'}"></i></span></td>
+      <td class="n">${x.cnt ? Math.round(x.hit * 100) + '%' : '—'}<br><span class="pend">${x.cnt} calls</span></td>
+      <td class="n">${x.weight > 0 ? (x.weight * 100).toFixed(1) : 'off'}</td></tr>`;
+  }).join('');
+  const liveRow = (label, v, pos, neg) => v == null ? '' : `<tr><td>${label}</td><td><span class="vbar"><i style="left:${v >= 0 ? 32 : 32 - Math.min(1, Math.abs(v)) * 32}px;width:${Math.min(1, Math.abs(v)) * 32}px;background:${v >= 0 ? 'var(--bull)' : 'var(--bear)'}"></i></span></td><td class="n" colspan="2">${Math.round(v * 100)}% ${v >= 0 ? pos : neg}</td></tr>`;
+  const live = mi ? `<div class="label">Live order flow · updates every 5 s</div><div style="overflow-x:auto"><table class="qtable"><tbody>
+      ${liveRow('Order book (within 0.25% of price)', mi.imb, 'more buy orders', 'more sell orders')}
+      ${liveRow('Trades in the last 3 minutes', mi.tapeFlow, 'buyers in control', 'sellers in control')}
+      ${mi.spread != null ? `<tr><td>Spread</td><td></td><td class="n" colspan="2">${(mi.spread * 100).toFixed(3)}%</td></tr>` : ''}
+    </tbody></table></div>` : `<div class="pend">Loading the live order book…</div>`;
+  const conf = `<div class="build">Confidence <b>${a.conf}</b> comes from: voting strategies agreeing <b>${Math.round(R.agreement * 100)}%</b> × backtest edge <b>${Math.round(O.edge * 100)}%</b> (needs +0.25R per trade after fees for full marks) × sample size <b>${Math.round(O.sample * 100)}%</b> (${sim.trades} of 25 trades) × room over fees <b>${Math.round(O.costFactor * 100)}%</b> (typical 10-min move is ${O.moveVsCost.toFixed(1)}× the ${(R.cost * 100).toFixed(2)}% round-trip fee)${O.liveAgree ? `, ${O.liveAgree > 0 ? '<b>+10</b> because live order flow agrees' : '<b>−10</b> because live order flow disagrees'}` : ''}.</div>`;
+  const notes = O.notes.length ? `<div class="err" style="color:var(--gold);border-color:var(--gold);background:var(--gold-d)">${O.notes.map(esc).join(' ')}</div>` : '';
+  return `<div class="sechead"><span class="label">10-minute backtest</span><span class="tag">${R.n} one-minute bars</span></div>
+    <div class="lv">
+      <div><span>Trades</span><b>${sim.trades}</b><small>out-of-sample</small></div>
+      <div><span>Winners</span><b>${Math.round(sim.winRate * 100)}%</b><small>after fees</small></div>
+      <div><span>Avg result</span><b class="${sim.expR >= 0 ? 'up' : 'dn'}">${sim.expR >= 0 ? '+' : ''}${sim.expR.toFixed(2)}R</b><small>${sim.expPct >= 0 ? '+' : ''}${(sim.expPct * 100).toFixed(3)}% per trade</small></div>
+      <div><span>Exits</span><b>${sim.tpHits}/${sim.slHits}/${sim.timeExits}</b><small>target / stop / 10-min</small></div>
+    </div>
+    ${notes}${conf}
+    ${live}
+    <div class="label">Strategies on 1-minute bars</div>
+    <div style="overflow-x:auto"><table class="qtable"><thead><tr><th>Strategy · now</th><th>Vote</th><th>10-min hit rate</th><th>Weight</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="pend">The simulation enters at a bar's close, exits at the target or stop (stop counts first if both are touched in one minute) or at the 10-minute mark, and charges the taker fee both ways. Past hit rates on this coin set the weights; strategies at or below 50% are switched off.</div>`;
+}
+function levelsBlock(c, a) {
+  if (a.scalp) {
+    const L = a.scalp.L;
+    if (!L || !L.valid) return '';
+    return `<div class="sechead"><span class="label">10-minute trade · ${L.long ? 'long' : 'short'}</span>${winOdds(a) < S.floor || a.conf < S.minConf ? '<span class="tag">Below your trade lines</span>' : ''}</div>
+      <div class="lv">
+        <div><span>Entry</span><b>${fmtLvl(L.entry)}</b><small>market, now</small></div>
+        <div><span>Stop-loss</span><b class="dn">${fmtLvl(L.stop)}</b><small>${L.long ? '−' : '+'}${(L.riskPct * 100).toFixed(2)}%</small></div>
+        <div><span>Take profit 1</span><b class="up">${fmtLvl(L.tp1)}</b><small>${L.long ? '+' : '−'}${(L.tp1Pct * 100).toFixed(2)}% · 1R</small></div>
+        <div><span>Take profit 2</span><b class="up">${fmtLvl(L.tp2)}</b><small>${L.long ? '+' : '−'}${(L.tp2Pct * 100).toFixed(2)}% · 1.5R</small></div>
+      </div>
+      <div class="pend">Exit at whichever comes first: target, stop, or the 10-minute mark. The stop sits one typical 10-minute move away (never closer than 3× the round-trip fee). The backtest uses TP1. Levels are recalculated from the live price when you place the order.</div>`;
+  }
+  const L = levelsFor(c, a);
+  if (!L) return '';
+  if (!L.valid) return `<div class="err">The levels for ${esc(c.name)} didn't pass the safety check, so they're hidden.</div>`;
+  const noTrade = winOdds(a) < S.floor || a.conf < S.minConf;
+  return `<div class="sechead"><span class="label">Entry &amp; exit · ${L.long ? 'long' : 'short'}</span>${noTrade ? '<span class="tag">Below your trade lines</span>' : ''}</div>
+    <div class="lv">
+      <div><span>Entry zone</span><b>${fmtLvl(L.zone[0])}</b><small>to ${fmtLvl(L.zone[1])}</small></div>
+      <div><span>Stop-loss</span><b class="dn">${fmtLvl(L.stop)}</b><small>${L.long ? '−' : '+'}${(L.riskPct * 100).toFixed(1)}% from entry</small></div>
+      <div><span>Take profit 1</span><b class="up">${fmtLvl(L.tp1)}</b><small>${L.long ? '+' : '−'}${(L.tp1Pct * 100).toFixed(1)}% · 1.5R</small></div>
+      <div><span>Take profit 2</span><b class="up">${fmtLvl(L.tp2)}</b><small>${L.long ? '+' : '−'}${(L.tp2Pct * 100).toFixed(1)}% · 3R</small></div>
+    </div>
+    <div class="pend">Entry ${fmtLvl(L.entry)}, a quarter of the average daily move (${fmtLvl(L.atr)}) ${L.long ? 'below' : 'above'} the price. Stop ${esc(L.stopRule)}. Targets are 1.5× and 3× the risk. Max leverage ${L.maxLev}× keeps the stop well before liquidation.</div>`;
+}
+function hardBlock(c) {
+  const h = hardFor(c);
+  if (!h || (!h.dir && !h.up.length && !h.down.length && !h.both.length)) return '';
+  const title = h.dir === 'up' ? '▲ Could run hard' : h.dir === 'down' ? '▼ Hard downside risk' : h.dir === 'both' ? '⇅ Big move likely' : 'Things to watch';
+  const items = [...h.up.map(t => ['up', t]), ...h.down.map(t => ['dn', t]), ...h.both.map(t => ['', t])];
+  const src = h.catalysts.filter(e => e.url).map(e => `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${esc(e.title || domain(e.url))}</a>`).join(' · ');
+  return `<div class="hardbox ${h.dir || ''}"><b>${title}</b><ul>${items.map(([k, t]) => `<li class="${k}">${esc(t)}</li>`).join('')}</ul>${src ? `<div class="pend">Catalyst sources: ${src}</div>` : ''}</div>`;
+}
 function renderSheet() {
   const c = selected;
   const el = $('#sheetInner');
@@ -735,7 +1027,14 @@ function renderSheet() {
     else if (deepErr) ev = `<div class="err">${esc(deepErr)}</div><button class="btn" id="runDeep">Try the research again</button>`;
     else if (d) ev = evidenceBlock(d) + `<div class="meta"><span>${esc(d.model)} · researched ${ago(d.at)} at ${fmtPx(d.px)}${q && q.bull.prob !== d.bull.prob ? ` · quick read said ${q.bull.prob}/${q.bear.prob}` : ''}</span>${S.key ? '<button class="btn sm" id="runDeep">Re-research</button>' : ''}</div>`;
     else ev = S.key ? `<button class="btn" id="runDeep">Research with web sources</button>` : '';
-    body = `<div class="sec">${head}${main}</div>
+    if (horizon === SCALP) {
+      body = `${hardBlock(c)}<div class="sec"><div class="sechead"><span class="label">Odds over the next 10 minutes</span><span class="tag live">1-min data · live flow</span></div>${a ? oddsBlock(a, c) : scalpBlock(c, a || { scalp: {} })}</div>
+        ${a ? `<div class="sec">${levelsBlock(c, a)}</div><div class="sec">${scalpBlock(c, a)}</div>` : ''}
+        <details class="box"><summary>Bigger picture: 7-day AI view and daily quant</summary><div class="sec">${quantBlock(c, null)}${ev}</div></details>`;
+    } else
+    body = `${hardBlock(c)}<div class="sec">${head}${main}</div>
+      <div class="sec">${a ? levelsBlock(c, a) : ''}</div>
+      <div class="sec">${quantBlock(c, a)}</div>
       <div class="sec">${ev}</div>
       <details class="box"><summary>Market data the model saw</summary><div>${inputsTable((d || q)?.inputs || inputs(c))}</div></details>`;
   }
@@ -756,21 +1055,39 @@ function renderSheet() {
   wireSheet(c, h, a);
 }
 
+let entryType = 'market', tpChoice = 'tp1', useSL = true, autoClose = true;
+// price: per-token price on the venue being traded (testnet prices can differ from mainnet)
+function ticketLevels(c, a, s, price) {
+  if (a.scalp) { const R = a.scalp.R; return Quant.scalpLevelsAt(price || R.price, R.sigma10, R.cost, s === 'long'); }
+  const r = quantRes[c.id];
+  return r && r.q ? Quant.levels(c.current_price, r.q, s === 'long') : null;
+}
 function ticketHTML(c, h, a) {
   if (!h) return `<div class="ticket"><h3>Trade</h3><div class="levnote">${esc(c.symbol.toUpperCase())} isn't listed as a perp on Hyperliquid ${S.net}, so there's nothing to trade here.</div></div>`;
-  const rec = levFor(a, h);
   const s = side || bestSide(a);
-  const lev = levOverride || rec || 1;
-  const cap = Math.max(1, Math.min(+S.cap || 1, h.maxLev));
+  const L = ticketLevels(c, a, s, h.mark / (h.scale || 1));
+  const LV = L && L.valid ? L : null;
+  if (a.scalp) entryType = 'market';
+  const rec = levFor(a, h, LV);
+  const capRaw = Math.max(1, Math.min(+S.cap || 1, h.maxLev));
+  const cap = LV ? Math.min(capRaw, LV.maxLev) : capRaw;
+  const lev = Math.min(levOverride || rec || 1, h.maxLev);
   const margin = +($('#tMargin')?.value || S.margin);
   const notional = margin * lev;
-  const sz = floorSz(notional / h.mark, h.szDecimals);
-  const target = s === 'long' ? a.bull.target : a.bear.target;
+  const k = h.scale || 1;                                   // Hyperliquid k-markets quote per 1,000 tokens
+  const refPx = entryType === 'limit' && LV ? LV.entry * k : h.mark;   // price on Hyperliquid's scale
+  const refUsd = refPx / k;                                  // price per token, same scale as the levels
+  const sz = floorSz(notional / refPx, h.szDecimals);
   const against = s !== bestSide(a);
-  const gauge = Array.from({ length: cap }, (_, i) => `<i class="${i < lev ? 'on' : ''}"></i>`).join('');
+  const gauge = Array.from({ length: Math.max(cap, lev) }, (_, i) => `<i class="${i < lev ? 'on' : ''}"></i>`).join('');
   const why = rec === 0
     ? `${winOdds(a) < S.floor ? `Win odds ${winOdds(a)}% are under your ${S.floor}% line` : `Confidence ${a.conf} is under your ${S.minConf} line`}, so the desk says <b>no trade</b>. Placing it anyway uses 1×.`
-    : levOverride ? `Manual leverage (desk suggested ${rec}×).` : `${winOdds(a)}% odds at ${a.conf} confidence with a ${cap}× cap.`;
+    : levOverride ? `Manual leverage (desk suggested ${rec}×).` : `${winOdds(a)}% odds at ${a.conf} confidence, ${cap}× cap${LV && LV.maxLev < capRaw ? ' (limited by the stop distance)' : ''}.`;
+  const overStop = LV && lev > LV.maxLev;
+  const tpPx = LV ? (tpChoice === 'tp1' ? LV.tp1 : tpChoice === 'tp2' ? LV.tp2 : null) : null;
+  const slPx = LV && useSL ? LV.stop : null;
+  const lossAtStop = slPx ? notional * Math.abs(slPx / refUsd - 1) : null;
+  const gainAtTp = tpPx ? notional * Math.abs(tpPx / refUsd - 1) : null;
   return `<div class="ticket">
     <h3>Trade on Hyperliquid <span class="net ${S.net === 'mainnet' ? 'main' : ''}">${S.net}</span></h3>
     <div class="side">
@@ -778,31 +1095,71 @@ function ticketHTML(c, h, a) {
       <button type="button" class="short" data-side="short" aria-pressed="${s === 'short'}">Short<small>${a.bear.prob}% bear</small></button>
     </div>
     <div class="levrow"><div class="levbig">${lev}×</div><div style="flex:1;display:flex;flex-direction:column;gap:6px"><div class="gauge">${gauge}</div>
-      <div class="levnote">${why}${against ? ' <span class="dn">You are trading against the AI\'s pick.</span>' : ''}</div></div></div>
+      <div class="levnote">${why}${against ? ' <span class="dn">You are trading against the desk\'s pick.</span>' : ''}${overStop ? ` <span class="dn">At ${lev}× you could be liquidated before the stop (${LV.maxLev}× max).</span>` : ''}</div></div></div>
     <div class="grid2">
       <div class="field"><label for="tMargin">Margin</label><div class="inp"><input id="tMargin" type="number" min="1" step="1" value="${margin}"><span>USD</span></div></div>
       <div class="field"><label for="tLev">Leverage</label><div class="inp"><input id="tLev" type="number" min="1" max="${h.maxLev}" step="1" value="${lev}"><span>×</span></div></div>
     </div>
+    ${LV ? `<div class="optrow">${a.scalp ? '' : `<span class="seg" role="group" aria-label="Entry"><button type="button" data-entry="market" aria-pressed="${entryType === 'market'}">Market now</button><button type="button" data-entry="limit" aria-pressed="${entryType === 'limit'}">Limit at ${fmtLvl(LV.entry)}</button></span>`}
+      <span class="seg" role="group" aria-label="Take profit"><button type="button" data-tp="tp1" aria-pressed="${tpChoice === 'tp1'}">TP1</button><button type="button" data-tp="tp2" aria-pressed="${tpChoice === 'tp2'}">TP2</button><button type="button" data-tp="none" aria-pressed="${tpChoice === 'none'}">No TP</button></span>
+      <label class="chk"><input type="checkbox" id="tSL" ${useSL ? 'checked' : ''}> Stop-loss</label>${a.scalp ? `<label class="chk"><input type="checkbox" id="tAuto" ${autoClose ? 'checked' : ''}> Auto-close at 10:00</label>` : ''}</div>` : '<div class="pend">Entry/exit levels appear once the quant engine has this coin\'s history.</div>'}
     <div class="calc">
       <span>Position size</span><b>${fmtPx(notional)} · ${sz} ${esc(h.name)}</b>
-      <span>Entry (approx)</span><b>${fmtPx(h.mark)}${h.scale === 1000 ? ' per 1,000' : ''}</b>
-      <span>Rough liquidation move</span><b class="dn">${s === 'long' ? '−' : '+'}${(100 / lev).toFixed(0)}% isolated · cross uses full balance</b>
-      <span>If the AI target hits</span><b class="up">${fmtPx(target)} → ${fmtPx(notional * Math.abs(target / c.current_price - 1))}</b>
+      <span>Entry</span><b>${entryType === 'limit' && LV ? 'limit ' + fmtLvl(LV.entry) : 'market ≈ ' + fmtLvl(refUsd)}</b>
+      ${slPx ? `<span>Stop-loss</span><b class="dn">${fmtLvl(slPx)} → about −${fmtPx(lossAtStop)}</b>` : `<span>Stop-loss</span><b class="dn">none · liquidation ≈ ${s === 'long' ? '−' : '+'}${(100 / lev).toFixed(0)}% move</b>`}
+      ${tpPx ? `<span>Take profit</span><b class="up">${fmtLvl(tpPx)} → about +${fmtPx(gainAtTp)}</b>` : ''}
     </div>
     ${notional < 10 ? '<div class="err">Hyperliquid needs at least a $10 position. Raise margin or leverage.</div>' : ''}
     ${pendingConfirm ? `<div class="confirm">
-        <div><b>${s === 'long' ? 'Buy' : 'Sell'} ${sz} ${esc(h.name)}</b> at market (max ${S.slip}% slippage), ${lev}× cross, on <b>${S.net}</b>.${S.net === 'mainnet' ? ' <span class="dn">This uses real money.</span>' : ''}</div>
+        <div><b>${s === 'long' ? 'Buy' : 'Sell'} ${sz} ${esc(h.name)}</b> ${entryType === 'limit' && LV ? 'with a limit at ' + fmtLvl(LV.entry) : `at market (max ${S.slip}% slippage)`}, ${lev}× cross, on <b>${S.net}</b>${slPx ? `, stop ${fmtLvl(slPx)}` : ''}${tpPx ? `, take profit ${fmtLvl(tpPx)}` : ''}${a.scalp && autoClose ? ', closed automatically after 10 minutes if still open (keep this tab open)' : ''}.${S.net === 'mainnet' ? ' <span class="dn">This uses real money.</span>' : ''}</div>
         <div class="row"><button class="btn" id="cancelOrder">Cancel</button><button class="btn gold" id="placeOrder">Place ${s} ${lev}×</button></div>
       </div>` : `<button class="btn gold" id="reviewOrder" ${notional < 10 ? 'disabled' : ''}>Review ${s} ${lev}×</button>`}
     ${lastResult ? `<div class="result ${lastResult.ok ? 'ok' : 'bad'}">${esc(lastResult.msg)}</div>` : ''}
   </div>`;
 }
+// ---------- 10-minute auto-close (runs in this tab) ----------
+let timers = {};
+try { timers = JSON.parse(localStorage.getItem('od.timers') || '{}'); } catch (e) {}
+const saveTimers = () => { try { localStorage.setItem('od.timers', JSON.stringify(timers)); } catch (e) {} };
+function armAutoClose(h, s) { timers[h.name + '|' + S.net] = { coin: h.name, net: S.net, side: s, deadline: Date.now() + 10 * 60e3 }; saveTimers(); }
+let closing = {};
+async function fireAutoClose(key, t) {
+  if (closing[key]) return; closing[key] = true;
+  try {
+    if (t.net !== S.net || !S.agent || !S.addr) throw new Error('Switch back to ' + t.net + ' with your API wallet to auto-close ' + t.coin + '.');
+    const st = await info({ type: 'clearinghouseState', user: S.addr });
+    const pos = (st.assetPositions || []).map(x => x.position).find(p => p.coin === t.coin && +p.szi !== 0);
+    const hh = Object.values(hl).find(x => x.name === t.coin);
+    if (pos && hh) {
+      const szi = +pos.szi;
+      const res = await marketOrder(hh, szi < 0, Math.abs(szi), true);
+      lastResult = { ok: true, msg: `10-minute timer: closed ${t.coin}${res.filled ? ' @ ' + res.filled.avgPx : ''}.` };
+    } else lastResult = { ok: true, msg: `10-minute timer: ${t.coin} was already closed by its target or stop.` };
+    // remove any leftover take-profit / stop orders on that coin
+    try {
+      const open = await info({ type: 'frontendOpenOrders', user: S.addr });
+      const stale = (open || []).filter(o => o.coin === t.coin && (o.reduceOnly || o.isTrigger));
+      if (stale.length && hh) await exchange({ type: 'cancel', cancels: stale.map(o => ({ a: hh.asset, o: o.oid })) });
+    } catch (e) {}
+    delete timers[key]; saveTimers();
+  } catch (e) { lastResult = { ok: false, msg: friendly(e) }; }
+  closing[key] = false;
+  renderSheet(); loadAccount();
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, t] of Object.entries(timers)) {
+    const left = t.deadline - now;
+    document.querySelectorAll(`[data-timer="${CSS.escape(key)}"]`).forEach(el => { el.textContent = left > 0 ? `closes in ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, '0')}` : 'closing…'; });
+    if (left <= 0) fireAutoClose(key, t);
+  }
+}, 1000);
 function positionsHTML() {
   const ps = (account?.assetPositions || []).map(x => x.position).filter(p => +p.szi !== 0);
   if (!ps.length) return '';
   return `<div class="pos"><div class="label">Open positions · ${S.net}</div>${ps.map(p => {
     const long = +p.szi > 0, pnl = +p.unrealizedPnl;
-    return `<div class="posrow"><span class="chip ${long ? 'bull' : 'bear'}">${long ? 'L' : 'S'} ${p.leverage?.value || ''}×</span><span>${esc(p.coin)} ${Math.abs(+p.szi)} @ ${(+p.entryPx).toPrecision(5)}</span><span class="${cls(pnl)}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span><button class="btn sm" data-close="${esc(p.coin)}" data-szi="${p.szi}">Close</button></div>`;
+    return `<div class="posrow"><span class="chip ${long ? 'bull' : 'bear'}">${long ? 'L' : 'S'} ${p.leverage?.value || ''}×</span><span>${esc(p.coin)} ${Math.abs(+p.szi)} @ ${(+p.entryPx).toPrecision(5)}</span><span class="${cls(pnl)}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}${timers[p.coin + '|' + S.net] ? `<br><span class="pend run" data-timer="${esc(p.coin + '|' + S.net)}"></span>` : ''}</span><button class="btn sm" data-close="${esc(p.coin)}" data-szi="${p.szi}">Close</button></div>`;
   }).join('')}</div>`;
 }
 function wireSheet(c, h, a) {
@@ -814,14 +1171,49 @@ function wireSheet(c, h, a) {
   $('#tLev')?.addEventListener('change', e => { const v = Math.round(+e.target.value); levOverride = v >= 1 ? Math.min(v, h.maxLev) : null; pendingConfirm = false; renderSheet(); });
   $('#reviewOrder')?.addEventListener('click', () => { if (!S.agent) { openSettings('Add your Hyperliquid API wallet key to place orders.'); return; } pendingConfirm = true; lastResult = null; renderSheet(); });
   $('#cancelOrder')?.addEventListener('click', () => { pendingConfirm = false; renderSheet(); });
+  document.querySelectorAll('[data-entry]').forEach(b => b.addEventListener('click', () => { entryType = b.dataset.entry; pendingConfirm = false; renderSheet(); }));
+  document.querySelectorAll('[data-tp]').forEach(b => b.addEventListener('click', () => { tpChoice = b.dataset.tp; pendingConfirm = false; renderSheet(); }));
+  $('#tSL')?.addEventListener('change', e => { useSL = e.target.checked; pendingConfirm = false; renderSheet(); });
+  $('#tAuto')?.addEventListener('change', e => { autoClose = e.target.checked; });
   $('#placeOrder')?.addEventListener('click', async e => {
     e.target.disabled = true; e.target.textContent = 'Signing…';
-    const s = side || bestSide(a), lev = levOverride || levFor(a, h) || 1, margin = +$('#tMargin').value;
+    const s = side || bestSide(a);
+    const isBuy = s === 'long';
     try {
-      await exchange({ type: 'updateLeverage', asset: h.asset, isCross: true, leverage: lev });
       const mids = await info({ type: 'allMids' }); const mid = +mids[h.name];
-      const st = await marketOrder(h, s === 'long', (margin * lev) / mid, false, mid);
-      lastResult = st.filled ? { ok: true, msg: `Filled ${st.filled.totalSz} ${h.name} @ ${st.filled.avgPx} · ${lev}× ${s}` } : st.resting ? { ok: true, msg: `Order resting (oid ${st.resting.oid}).` } : { ok: false, msg: 'Not filled: ' + JSON.stringify(st) };
+      if (!mid) throw new Error('No live price for ' + h.name);
+      const L = ticketLevels(c, a, s, mid / (h.scale || 1)), LV = L && L.valid ? L : null;
+      const lev = Math.min(levOverride || levFor(a, h, LV) || 1, h.maxLev), margin = +$('#tMargin').value;
+      const limit = entryType === 'limit' && LV;
+      const tpRaw = LV ? (tpChoice === 'tp1' ? LV.tp1 : tpChoice === 'tp2' ? LV.tp2 : null) : null;
+      const slRaw = LV && useSL ? LV.stop : null;
+      // Hyperliquid prices are on the coin's own scale (k-coins are per 1,000 tokens).
+      const k = h.scale || 1;
+      const ref = limit ? LV.entry * k : mid;
+      // safety: never send exits that are already on the wrong side of the entry price
+      if (slRaw && (isBuy ? slRaw * k >= ref : slRaw * k <= ref)) throw new Error('Price has moved past the stop-loss level. Refresh the page for new levels.');
+      if (tpRaw && (isBuy ? tpRaw * k <= ref : tpRaw * k >= ref)) throw new Error('Price has already passed the take-profit level. Refresh the page for new levels.');
+      const sz = floorSz((margin * lev) / ref, h.szDecimals);
+      if (sz <= 0) throw new Error('Size rounds to zero for ' + h.name + '. Increase the margin.');
+      const slip = (+S.slip || 1) / 100;
+      const entryPx = limit ? roundPx(ref, h.szDecimals) : roundPx(isBuy ? mid * (1 + slip) : mid * (1 - slip), h.szDecimals);
+      const orders = [{ a: h.asset, b: isBuy, p: floatToWire(entryPx), s: floatToWire(sz), r: false, t: { limit: { tif: limit ? 'Gtc' : 'Ioc' } } }];
+      const exit = (px, kind) => {
+        const trig = roundPx(px * k, h.szDecimals);
+        const worst = roundPx(isBuy ? trig * 0.9 : trig * 1.1, h.szDecimals);
+        return { a: h.asset, b: !isBuy, p: floatToWire(worst), s: floatToWire(sz), r: true, t: { trigger: { isMarket: true, triggerPx: floatToWire(trig), tpsl: kind } } };
+      };
+      if (tpRaw) orders.push(exit(tpRaw, 'tp'));
+      if (slRaw) orders.push(exit(slRaw, 'sl'));
+      await exchange({ type: 'updateLeverage', asset: h.asset, isCross: true, leverage: lev });
+      const res = await exchange({ type: 'order', orders, grouping: orders.length > 1 ? 'normalTpsl' : 'na' });
+      const sts = res?.data?.statuses || [];
+      const st = sts[0] || {};
+      if (st.error) throw new Error(st.error);
+      const exitErr = sts.slice(1).find(x => x && x.error);
+      const head = st.filled ? `Filled ${st.filled.totalSz} ${h.name} @ ${st.filled.avgPx} · ${lev}× ${s}` : st.resting ? `Limit order resting at ${fmtLvl(LV.entry)} (oid ${st.resting.oid})` : 'Sent: ' + JSON.stringify(st);
+      if (a.scalp && autoClose && st.filled) armAutoClose(h, s);
+      lastResult = { ok: !exitErr, msg: head + (a.scalp && autoClose && st.filled ? '\nAuto-close armed for 10:00 from now.' : '') + (orders.length > 1 ? (exitErr ? `\nExit order problem: ${exitErr.error}` : `\nExits attached:${tpRaw ? ' take profit ' + fmtLvl(tpRaw) : ''}${slRaw ? ' · stop ' + fmtLvl(slRaw) : ''}`) : '') };
     } catch (err) { lastResult = { ok: false, msg: friendly(err) }; }
     pendingConfirm = false; renderSheet(); loadAccount();
   });
@@ -847,7 +1239,7 @@ function friendly(err) {
   return m;
 }
 async function startDeep(c, force) {
-  if (isStable(c) || !S.key) return;
+  if (isStable(c) || !S.key || horizon === SCALP) return;
   const k = dk(c);
   if (!force && (fresh(k) || errors[k] || inflight.has(k))) return;
   delete errors[k];
@@ -863,13 +1255,14 @@ function select(id) {
   renderTable(); renderSheet();
   $('#sheet').classList.add('open'); $('#sheet').scrollTop = 0;
   if (selected) startDeep(selected, false);
+  if (selected && horizon === SCALP && mainFor(selected)) loadMicro(selected).then(() => { renderSheet(); scheduleRender(); }).catch(() => {});
 }
 
 // ---------- settings ----------
 function openSettings(msg) {
   $('#sKey').value = S.key; $('#sQuick').value = S.quick; $('#sDeep').value = S.deep; $('#sHz').value = S.hz; $('#sNet').value = S.net;
   $('#sAddr').value = S.addr; $('#sAgent').value = S.agent; $('#sCap').value = S.cap; $('#sMargin').value = S.margin;
-  $('#sSlip').value = S.slip; $('#sFloor').value = S.floor; $('#sMinConf').value = S.minConf; $('#sRemember').checked = S.remember;
+  $('#sSlip').value = S.slip; $('#sFee').value = S.fee; $('#sFloor').value = S.floor; $('#sMinConf').value = S.minConf; $('#sRemember').checked = S.remember;
   const m = $('#settingsMsg'); m.hidden = !msg; m.textContent = msg || '';
   $('#settings').showModal();
 }
@@ -881,12 +1274,13 @@ $('#settings').addEventListener('close', async () => {
     addr: $('#sAddr').value.trim(), agent: $('#sAgent').value.trim(),
     cap: Math.max(1, Math.round(+$('#sCap').value || 1)), margin: Math.max(1, +$('#sMargin').value || 25),
     slip: Math.min(10, Math.max(0.1, +$('#sSlip').value || 1)), floor: Math.min(80, Math.max(50, +$('#sFloor').value || 55)),
-    minConf: Math.min(100, Math.max(0, +$('#sMinConf').value || 0)), remember: $('#sRemember').checked
+    minConf: Math.min(100, Math.max(0, +$('#sMinConf').value || 0)), fee: Math.min(0.2, Math.max(0, +$('#sFee').value)), remember: $('#sRemember').checked
   });
   if (S.agent && !S.addr) { try { S.addr = new ethers.Wallet(S.agent).address; } catch (e) {} }
   persist(); updateNet();
   if (netChanged) { try { await loadHL(); } catch (e) {} }
   if (keyChanged) { qStop = ''; Object.keys(errors).forEach(k => delete errors[k]); }
+  coins.forEach(c => { if (bars1m[c.id]) computeScalp(c); });
   renderTable(); renderSheet(); loadAccount(); renderStatus();
   runQueue(false);
   if (selected) startDeep(selected, false);
@@ -903,7 +1297,8 @@ $('#hlOnly').addEventListener('change', renderTable);
 $('#hzSeg').addEventListener('click', e => {
   const b = e.target.closest('[data-hz]'); if (!b || b.dataset.hz === horizon) return;
   horizon = b.dataset.hz; renderHz(); side = null; levOverride = null; pendingConfirm = false; lastResult = null;
-  renderTable(); renderSheet(); runQueue(false); if (selected) startDeep(selected, false);
+  renderTable(); renderSheet(); renderStatus(); runQueue(false); if (selected) startDeep(selected, false);
+  if (selected && horizon === SCALP && mainFor(selected)) loadMicro(selected).then(() => renderSheet()).catch(() => {});
 });
 $('#tbody').addEventListener('click', e => { const tr = e.target.closest('tr.r'); if (tr) select(tr.dataset.id); });
 $('#tbody').addEventListener('keydown', e => { if (e.key === 'Enter') { const tr = e.target.closest('tr.r'); if (tr) select(tr.dataset.id); } });
@@ -912,18 +1307,28 @@ $('#tbody').addEventListener('keydown', e => { if (e.key === 'Enter') { const tr
 updateNet();
 (async () => {
   const errs = [];
-  await Promise.all([loadCoins().catch(e => errs.push(e.message)), loadHL().catch(e => errs.push(e.message)), loadDesk()]);
-  if (desk && !S.key) horizon = desk.horizon;
+  await Promise.all([loadCoins().catch(e => errs.push(e.message)), loadHL().catch(e => errs.push(e.message)), loadHLMain().catch(e => errs.push('Hyperliquid mainnet data: ' + e.message)), loadDesk()]);
   renderHz();
   if (!coins.length) { $('#tbody').innerHTML = `<tr><td colspan="7"><div class="err">Couldn't load the top 100. ${esc(errs.join(' · '))}</div></td></tr>`; return; }
   if (errs.length) $('#notice').innerHTML += ' <span class="dn">' + esc(errs.join(' · ')) + '</span>';
   if (!S.key) $('#notice').innerHTML = desk
-    ? `<b>Odds researched by Claude ${new Date(desk.asof).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</b> over ${desk.horizon}, with web sources for each coin. Add your own Anthropic key in Settings to refresh them or change the horizon. ` + $('#notice').innerHTML.replace('<b>AI odds are opinions, not forecasts.</b>', 'AI odds are opinions, not forecasts.')
+    ? `<b>10m</b> shows 10-minute scalp odds from live Hyperliquid data; <b>7d</b> shows the ` + `<b>odds researched by Claude ${new Date(desk.asof).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</b> over ${desk.horizon}, with web sources for each coin. Add your own Anthropic key in Settings to refresh them or change the horizon. ` + $('#notice').innerHTML.replace('<b>AI odds are opinions, not forecasts.</b>', 'AI odds are opinions, not forecasts.')
     : '<b>Start in Settings:</b> add an Anthropic API key and the bull/bear odds fill in for every coin automatically. ' + $('#notice').innerHTML;
   renderTable(); renderStatus();
   if (innerWidth > 900) select(coins[0].id);
   loadAccount();
   runQueue(false);
+  runScalp(true).then(() => runQuant());
+  // 10-minute mode: live order flow for the open coin every 5 s, its candles every 30 s, all coins every 2 min
+  setInterval(async () => {
+    if (horizon !== SCALP || !selected || !mainFor(selected) || document.hidden) return;
+    try { await loadMicro(selected); renderSheet(); scheduleRender(); } catch (e) {}
+  }, 5000);
+  setInterval(async () => {
+    if (horizon !== SCALP || !selected || !mainFor(selected) || document.hidden) return;
+    try { await loadBars(selected, false); computeScalp(selected); renderSheet(); scheduleRender(); } catch (e) {}
+  }, 30000);
+  setInterval(() => { if (!document.hidden) runScalp(false); }, 120000);
   setInterval(async () => {
     try { await Promise.all([loadCoins(), loadHL()]); if (selected) selected = coins.find(c => c.id === selected.id) || selected; scheduleRender(); } catch (e) {}
     loadAccount(); runQueue(false);
