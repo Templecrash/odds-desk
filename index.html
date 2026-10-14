@@ -350,7 +350,7 @@ function persist() {
 const API = () => S.net === 'mainnet' ? 'https://api.hyperliquid.xyz' : 'https://api.hyperliquid-testnet.xyz';
 
 // ---------- state ----------
-let coins = [], hl = {}, selected = null, account = null;
+let coins = [], hl = {}, selected = null, account = null, coinsStale = null;
 let side = null, levOverride = null, pendingConfirm = false, lastResult = null;
 let horizon = S.hz;
 let store = {};   // 'q|id|hz' quick results, 'd|id|hz' deep results
@@ -423,8 +423,15 @@ async function loadCoins() {
   let r = null;
   if (HOSTED) { try { r = await fetch('/api/cg'); if (r.status === 404) r = null; } catch (e) { r = null; } }
   if (!r) { try { r = await fetch(url); } catch (e) { throw new Error(netHint('CoinGecko')); } }
-  if (!r.ok) throw new Error('CoinGecko returned ' + r.status + (r.status === 429 ? ' (rate limited, retrying shortly)' : ''));
-  coins = await r.json();
+  if (!r.ok) {
+    // fall back to the last good list so the page never comes up empty
+    let saved = null; try { saved = JSON.parse(localStorage.getItem('od.coins') || 'null'); } catch (e) {}
+    if (saved && saved.list && saved.list.length && !coins.length) { coins = saved.list; coinsStale = saved.at; return; }
+    if (coins.length) return; // keep showing what we have
+    throw new Error('CoinGecko returned ' + r.status + (r.status === 429 ? ' (busy right now; retrying every 30 seconds)' : ''));
+  }
+  coins = await r.json(); coinsStale = null;
+  try { localStorage.setItem('od.coins', JSON.stringify({ at: Date.now(), list: coins })); } catch (e) {}
 }
 async function hlPost(ep, body) {
   const payload = JSON.stringify(body);
@@ -487,7 +494,7 @@ async function history(c) {
     for (let attempt = 0; attempt < 3; attempt++) {
       r = await fetch('/api/cgchart?id=' + encodeURIComponent(c.id));
       if (r.status !== 429) break;
-      await new Promise(res => setTimeout(res, 20000));
+      await new Promise(res => setTimeout(res, 40000));
     }
     if (!r.ok) throw new Error('price history ' + r.status);
     const j = await r.json();
@@ -522,7 +529,7 @@ async function runQuant() {
   if (ordered.length) await work(ordered[0]);
   const hlQ = ordered.slice(1).filter(c => mainFor(c)), cgQ = ordered.slice(1).filter(c => !mainFor(c));
   const hlWorker = async () => { while (hlQ.length) await work(hlQ.shift()); };
-  const cgWorker = async () => { while (cgQ.length) { await work(cgQ.shift()); await new Promise(r => setTimeout(r, 1200)); } };
+  const cgWorker = async () => { while (cgQ.length) { await work(cgQ.shift()); await new Promise(r => setTimeout(r, 7000)); } };
   await Promise.all([hlWorker(), hlWorker(), hlWorker(), cgWorker()]);
   quantRunning = false; renderStatus(); scheduleRender(); if (selected) renderSheet();
 }
@@ -1309,7 +1316,12 @@ updateNet();
   const errs = [];
   await Promise.all([loadCoins().catch(e => errs.push(e.message)), loadHL().catch(e => errs.push(e.message)), loadHLMain().catch(e => errs.push('Hyperliquid mainnet data: ' + e.message)), loadDesk()]);
   renderHz();
-  if (!coins.length) { $('#tbody').innerHTML = `<tr><td colspan="7"><div class="err">Couldn't load the top 100. ${esc(errs.join(' · '))}</div></td></tr>`; return; }
+  while (!coins.length) {
+    $('#tbody').innerHTML = `<tr><td colspan="7"><div class="err">Couldn't load the top 100. ${esc(errs.join(' · '))}</div></td></tr>`;
+    await new Promise(r => setTimeout(r, 30000));
+    errs.length = 0; await loadCoins().catch(e => errs.push(e.message));
+  }
+  if (coinsStale) errs.push('Prices are from ' + new Date(coinsStale).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' while CoinGecko is busy; refreshing automatically.');
   if (errs.length) $('#notice').innerHTML += ' <span class="dn">' + esc(errs.join(' · ')) + '</span>';
   if (!S.key) $('#notice').innerHTML = desk
     ? `<b>10m</b> shows 10-minute scalp odds from live Hyperliquid data; <b>7d</b> shows the ` + `<b>odds researched by Claude ${new Date(desk.asof).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</b> over ${desk.horizon}, with web sources for each coin. Add your own Anthropic key in Settings to refresh them or change the horizon. ` + $('#notice').innerHTML.replace('<b>AI odds are opinions, not forecasts.</b>', 'AI odds are opinions, not forecasts.')

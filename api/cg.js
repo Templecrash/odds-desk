@@ -6,6 +6,6 @@ export default async function handler() {
   const upstream = await fetch(url, { headers: { accept: 'application/json' } });
   return new Response(await upstream.text(), {
     status: upstream.status,
-    headers: { 'content-type': 'application/json', 'cache-control': 's-maxage=60, stale-while-revalidate=120' },
+    headers: { 'content-type': 'application/json', 'cache-control': upstream.ok ? 's-maxage=90, stale-while-revalidate=900' : 'no-store' },
   });
 }
