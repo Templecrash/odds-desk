@@ -123,9 +123,10 @@
     const edge = oCnt >= 15 ? clamp((oos - 0.5) / 0.10, 0, 1) : 0;
     const volPenalty = clamp(1 - (vol - 0.6) / 1.5, 0.5, 1);
     const prob = Math.round(50 + 25 * clamp(S, -1, 1) * Math.max(edge, 0.2));
-    const conf = Math.round(100 * agreement * edge * volPenalty);
+    const strength = clamp(Math.abs(S) / 0.5, 0, 1);   // how hard today's signals point
+    const conf = Math.round(100 * agreement * strength * edge * volPenalty);
     return {
-      n, price: c[now], S, prob, conf, oos, oosN: oCnt, agreement, edge, vol, volPenalty, atr, low20, high20,
+      n, price: c[now], S, prob, conf, oos, oosN: oCnt, agreement, strength, edge, vol, volPenalty, atr, low20, high20,
       bwPctile, volRatio, ret3: c[now] / c[now - 3] - 1, ret7: c[now] / c[now - 7] - 1,
       breakoutUp: c[now] > phi, breakoutDown: c[now] < plo, readings
     };
@@ -317,12 +318,14 @@
       if (M.spread != null && M.spread > R.cost) notes.push('Spread is wider than the fees, which eats into a 10-minute trade.');
     }
     prob = Math.round(clamp(prob, 30, 70));
-    let conf = 100 * R.agreement * edge * sample * costFactor;
+    const strength = clamp(Math.abs(R.S) / 0.5, 0, 1);
+    let conf = 100 * R.agreement * strength * edge * sample * costFactor;
     conf += liveAgree * 10;
     conf = Math.round(clamp(conf, 0, 100));
     if (sim.expR <= 0) notes.push('In the backtest this setup lost money after fees on this coin.');
     if (moveVsCost < 2) notes.push('This coin barely moves in 10 minutes compared with trading fees.');
-    return { prob, conf, edge, sample, costFactor, moveVsCost, liveAgree, notes };
+    if (Math.abs(prob - 50) < 2) conf = Math.min(conf, 10);   // a coin flip can't be a confident call
+    return { prob, conf, edge, sample, strength, costFactor, moveVsCost, liveAgree, notes };
   }
   root.Quant.scalp = scalp; root.Quant.micro = micro; root.Quant.scalpOdds = scalpOdds; root.Quant.scalpLevelsAt = scalpLevelsAt; root.Quant.SSTRATS = SSTRATS;
   if (typeof module !== 'undefined') module.exports = root.Quant;
