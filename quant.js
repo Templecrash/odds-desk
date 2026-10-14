@@ -214,6 +214,7 @@
     { key: 'boll', name: 'Bollinger snap-back', fn: (c, i) => { const [m, s] = meanStd(c, i - 19, i); const b = s > 0 ? (c[i] - (m - 2 * s)) / (4 * s) : 0.5; return [b > 0.9 ? -clamp((b - 0.9) / 0.3, 0, 1) : b < 0.1 ? clamp((0.1 - b) / 0.3, 0, 1) : 0, '%B ' + b.toFixed(2)]; } },
     { key: 'vwap', name: 'VWAP stretch (2 h)', fn: (c, i, X) => { const z = X.vz[i]; return [Math.abs(z) < 1.5 ? 0 : clamp(-z / 3, -1, 1), (z >= 0 ? '+' : '') + z.toFixed(1) + 'σ from VWAP']; } },
     { key: 'flow', name: 'Buy/sell volume pressure (10 min)', fn: (c, i, X) => { const f = X.flow[i]; return [clamp(f / 0.5, -1, 1), Math.round(f * 100) + '% net ' + (f >= 0 ? 'buying' : 'selling')]; } },
+    { key: 'btc', name: 'Bitcoin lead (last 3 min)', fn: (c, i, X) => { const r = X.btc3 ? X.btc3[i] : null; if (r == null) return [0, X.btc3 ? 'no bitcoin data' : 'n/a (this is bitcoin)']; return [clamp(r / (2 * X.sd1[i] * Math.sqrt(3) + 1e-12), -1, 1), 'BTC ' + pct(r) + ' in 3 min']; } },
     { key: 'brk', name: '30-minute breakout', fn: (c, i) => { const [lo, hi] = rangeMinMax(c, i - 30, i - 1); return [c[i] > hi ? 1 : c[i] < lo ? -1 : 0, c[i] > hi ? 'above 30-min high' : c[i] < lo ? 'below 30-min low' : 'inside 30-min range']; } }
   ];
   function scalpLevelsAt(price, sigma10, cost, long) {
@@ -246,7 +247,12 @@
       for (let j = b0; j <= i; j++) { const rng = hi[j] - lo[j]; const w = rng > 0 ? (c[j] - lo[j]) / rng : 0.5; up += v[j] * w; dn += v[j] * (1 - w); }
       flow[i] = up + dn ? (up - dn) / (up + dn) : 0;
     }
-    const X = { e9: ema(c, 9), e21: ema(c, 21), rsi: rsi(c), sd1, vz, flow };
+    let btc3 = null;
+    if (opts.btc && bars[0].t != null) {   // opts.btc: Map(minute timestamp -> BTC close)
+      btc3 = new Array(n).fill(null);
+      for (let i = 0; i < n; i++) { const a = opts.btc.get(bars[i].t), b = opts.btc.get(bars[i].t - 3 * 60e3); if (a && b) btc3[i] = a / b - 1; }
+    }
+    const X = { e9: ema(c, 9), e21: ema(c, 21), rsi: rsi(c), sd1, vz, flow, btc3 };
     const votes = SSTRATS.map(() => new Float64Array(n));
     for (let i = SWARM; i < n; i++) for (let k = 0; k < SSTRATS.length; k++) votes[k][i] = SSTRATS[k].fn(c, i, X)[0];
     const dirHit = (k, a, b) => { let h = 0, m = 0; for (let i = a; i < b; i++) { const x = votes[k][i]; if (Math.abs(x) < 0.2) continue; m++; if ((x > 0) === (c[i + SH] > c[i])) h++; } return { hit: m ? h / m : 0.5, cnt: m }; };
@@ -327,6 +333,27 @@
     if (Math.abs(prob - 50) < 2) conf = Math.min(conf, 10);   // a coin flip can't be a confident call
     return { prob, conf, edge, sample, strength, costFactor, moveVsCost, liveAgree, notes };
   }
+  // Macro: blend researched regime with live markets into one score (-1 risk-off .. +1 risk-on).
+  function macroScore(regime, live) {
+    const parts = [];
+    if (regime && Number.isFinite(regime.score)) parts.push([clamp(regime.score, -1, 1), 0.6]);
+    if (live) {
+      const x = [];
+      if (Number.isFinite(live.es5)) x.push(clamp(live.es5 / 0.02, -1, 1));          // S&P futures, 5-day %
+      if (Number.isFinite(live.dxy5)) x.push(clamp(-live.dxy5 / 0.01, -1, 1));       // stronger dollar = risk-off
+      if (Number.isFinite(live.tnx5)) x.push(clamp(-live.tnx5 / 0.15, -1, 1));       // rising 10y yield (points) = risk-off
+      if (x.length) parts.push([x.reduce((a, b) => a + b, 0) / x.length, 0.4]);
+    }
+    if (!parts.length) return null;
+    const w = parts.reduce((a, p) => a + p[1], 0);
+    return parts.reduce((a, p) => a + p[0] * p[1], 0) / w;
+  }
+  function eventWindow(events, nowMs, beforeMin, afterMin) {
+    const hits = [];
+    (events || []).forEach(e => { const t = e.t; if (!t) return; const d = (t - nowMs) / 60e3; if (d <= beforeMin && d >= -afterMin) hits.push(Object.assign({ minutes: d }, e)); });
+    return hits.sort((a, b) => a.t - b.t);
+  }
+  root.Quant.macroScore = macroScore; root.Quant.eventWindow = eventWindow;
   root.Quant.scalp = scalp; root.Quant.micro = micro; root.Quant.scalpOdds = scalpOdds; root.Quant.scalpLevelsAt = scalpLevelsAt; root.Quant.SSTRATS = SSTRATS;
   if (typeof module !== 'undefined') module.exports = root.Quant;
 })(typeof window !== 'undefined' ? window : globalThis);

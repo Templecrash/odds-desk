@@ -29,7 +29,7 @@ a{color:var(--gold)}
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .up{color:var(--bull)} .dn{color:var(--bear)}
-.app{height:100%;display:grid;grid-template-rows:auto auto 1fr}
+.app{height:100%;display:grid;grid-template-rows:auto auto auto 1fr}
 
 .bar{display:flex;align-items:center;gap:12px;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);flex-wrap:wrap}
 .brand{font-weight:800;font-size:19px;letter-spacing:-.01em;font-variation-settings:"wdth" 78;display:flex;align-items:baseline;gap:8px}
@@ -43,6 +43,11 @@ a{color:var(--gold)}
 .aistatus{font:12px var(--mono);color:var(--muted);display:flex;align-items:center;gap:8px}
 .aistatus .track{width:90px;height:4px;background:var(--line);border-radius:2px;overflow:hidden}
 .aistatus .track span{display:block;height:100%;background:var(--gold);transition:width .3s}
+.evbanner{padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));font-size:13px;font-weight:600;background:var(--bear-d);color:var(--bear);border-bottom:1px solid var(--bear)}
+.evbanner.warn{background:var(--gold-d);color:var(--gold);border-color:var(--gold)}
+.mtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.mtable td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:normal}
+.mtable td.n{text-align:right;font-family:var(--mono);white-space:nowrap}
 .btn{border:1px solid var(--line);background:var(--raise);padding:7px 12px;border-radius:4px;font-weight:600;font-size:13px}
 .btn:hover{border-color:var(--faint)}
 .btn.gold{background:var(--gold);border-color:var(--gold);color:#1a1405}
@@ -251,11 +256,13 @@ dialog::backdrop{background:rgba(5,8,11,.7)}
     <div class="brand"><span><i>Bull</i>/<b>Bear</b> Odds Desk</span><small>Top 100 · Hyperliquid</small></div>
     <div class="spacer"></div>
     <div class="acct" id="acct"></div>
+    <div class="aistatus" id="macroChip" hidden></div>
     <div class="aistatus" id="aiStatus" hidden></div>
     <span class="net" id="netBadge">Testnet</span>
     <button class="btn" id="refreshOdds" title="Re-run the AI odds for every coin">Refresh odds</button>
     <button class="btn gold" id="openSettings">Settings</button>
   </header>
+  <div class="evbanner" id="evBanner" hidden></div>
   <div class="notice" id="notice"><b>AI odds are opinions, not forecasts.</b> Model probabilities aren't calibrated and leverage magnifies losses. Starts on testnet; switch to mainnet in Settings.</div>
   <main class="main">
     <section class="ledger">
@@ -555,13 +562,14 @@ function computeScalp(c) {
   if (!b || b.length < 200) { scalpRes[c.id] = { err: 'not enough 1-minute history', at: Date.now() }; return; }
   // drop the still-forming minute so every bar used is complete
   const done = b[b.length - 1].t + 60e3 > Date.now() ? b.slice(0, -1) : b;
-  const R = Quant.scalp(done, { fee: (S.fee ?? 0.045) / 100 });
+  const bb = c.id !== 'bitcoin' && bars1m.bitcoin ? new Map(bars1m.bitcoin.map(x => [x.t, x.c])) : null;
+  const R = Quant.scalp(done, { fee: (S.fee ?? 0.045) / 100, btc: bb });
   scalpRes[c.id] = R ? { R, at: Date.now() } : { err: 'not enough 1-minute history', at: Date.now() };
 }
 async function runScalp(full) {
   if (scalpRunning || !coins.length) return;
   scalpRunning = true;
-  const list = coins.filter(c => mainFor(c));
+  const list = coins.filter(c => mainFor(c)).sort((a, b) => (b.id === 'bitcoin') - (a.id === 'bitcoin'));
   scTotal = list.length; scDone = 0; renderStatus();
   for (const c of list) {
     try { await loadBars(c, full || !bars1m[c.id]); computeScalp(c); }
@@ -585,6 +593,9 @@ function scalpOddsFor(c) {
   const r = scalpRes[c.id]; if (!r || !r.R) return null;
   const mi = microRes[c.id] && Date.now() - microRes[c.id].at < 60e3 ? microRes[c.id].M : null;
   const O = Quant.scalpOdds(r.R, mi);
+  const ev = eventStatus();
+  if (ev.blackout) { O.conf = 0; O.notes.unshift(`${ev.blackout.name} is due ${etTime(ev.blackout.t)}; 10-minute trades are paused around high-impact releases.`); O.blackout = ev.blackout; }
+  else if (ev.warn) { O.conf = Math.round(O.conf / 2); O.notes.unshift(`${ev.warn.name} is due ${etTime(ev.warn.t)}; confidence halved.`); }
   const L = O.prob >= 50 ? r.R.levelsLong : r.R.levelsShort;
   const why = r.R.readings.filter(x => x.weight > 0 && Math.abs(x.vote) >= 0.2).sort((a, b) => b.weight * Math.abs(b.vote) - a.weight * Math.abs(a.vote));
   const sim = r.R.sim;
@@ -595,6 +606,63 @@ function scalpOddsFor(c) {
     summary: sim.trades ? `Backtest of this exact 10-minute trade: ${sim.trades} trades, ${Math.round(sim.winRate * 100)}% winners, ${sim.expR >= 0 ? '+' : ''}${sim.expR.toFixed(2)}R average after fees.` : 'Not enough signals in the backtest window to judge this setup.',
     scalp: { R: r.R, O, mi, L }
   };
+}
+// ---------- macro: researched regime, live markets, event calendar ----------
+let macroLive = null;
+async function loadMacroLive() {
+  try {
+    const r = await fetch('/api/macro'); if (!r.ok) return;
+    const j = await r.json();
+    macroLive = { at: j.at, raw: j, es5: j.es?.d5, dxy5: j.dxy?.d5, tnx5: j.tnx?.d5abs };
+  } catch (e) {}
+}
+const macroEvents = () => (desk && desk.macro && desk.macro.events) || [];
+function macroNow() { return Quant.macroScore(desk && desk.macro && desk.macro.regime, macroLive); }
+function etTime(t) { return new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET'; }
+// 10-minute trades: pause 15 min before through 10 min after a high-impact release; warn for medium ones
+function eventStatus() {
+  const now = Date.now();
+  const high = Quant.eventWindow(macroEvents().filter(e => e.impact === 'high'), now, 15, 10);
+  const med = Quant.eventWindow(macroEvents().filter(e => e.impact === 'medium'), now, 10, 5);
+  return { blackout: high[0] || null, warn: med[0] || null };
+}
+function renderMacroChrome() {
+  const chip = $('#macroChip'), ban = $('#evBanner');
+  const m = macroNow();
+  const next = macroEvents().filter(e => e.t > Date.now() && e.impact === 'high').sort((a, b) => a.t - b.t)[0];
+  if (m != null || next) {
+    chip.hidden = false;
+    chip.innerHTML = `${m != null ? `<span>Macro <b class="${m > 0.1 ? 'up' : m < -0.1 ? 'dn' : ''}">${m > 0.1 ? 'risk-on' : m < -0.1 ? 'risk-off' : 'neutral'} ${m >= 0 ? '+' : ''}${m.toFixed(2)}</b></span>` : ''}${next ? `<span>· next: ${esc(next.name)} ${etTime(next.t)}</span>` : ''}`;
+  }
+  const st = eventStatus();
+  const e = st.blackout || st.warn;
+  if (e) {
+    const mins = Math.round(e.minutes);
+    ban.hidden = false; ban.classList.toggle('warn', !st.blackout);
+    ban.textContent = `${st.blackout ? '⚠ 10-minute trades paused: ' : 'Heads up: '}${e.name} ${mins > 0 ? 'in ' + mins + ' min' : mins === 0 ? 'now' : Math.abs(mins) + ' min ago'} (${etTime(e.t)}). Prices can jump in seconds around this release.`;
+  } else ban.hidden = true;
+}
+function macroBlock() {
+  const reg = desk && desk.macro && desk.macro.regime;
+  const m = macroNow();
+  if (!reg && !macroLive) return '';
+  const lv = macroLive && macroLive.raw;
+  const row = (label, d, fmt, good) => d == null ? '' : `<tr><td>${label}</td><td class="n ${good(d) ? 'up' : 'dn'}">${fmt(d)}</td></tr>`;
+  const live = lv ? `<table class="mtable">
+      ${lv.es && !lv.es.error ? row('S&amp;P 500 futures, 5 days', lv.es.d5, d => fmtPct(d * 100, 2), d => d >= 0) : ''}
+      ${lv.dxy && !lv.dxy.error ? row('US dollar index, 5 days', lv.dxy.d5, d => fmtPct(d * 100, 2), d => d <= 0) : ''}
+      ${lv.tnx && !lv.tnx.error ? row('10-year yield, 5 days', lv.tnx.d5abs, d => (d >= 0 ? '+' : '') + d.toFixed(2) + ' pts', d => d <= 0) : ''}
+    </table><div class="pend">Live markets, updated ${ago(lv.at)}. Rising stocks help crypto; a stronger dollar and higher yields usually hurt.</div>` : '';
+  const refs = n => n ? `<a class="ref" href="#msrc-${n}">[${n}]</a>` : '';
+  const facts = reg && reg.factors && reg.factors.length ? `<ul class="factors">${reg.factors.map(f => `<li><span class="fx ${f.effect === 'risk-on' ? 'bull' : 'bear'}">${f.effect === 'risk-on' ? '▲' : '▼'}</span><span>${esc(f.text)}${refs(f.source)}</span></li>`).join('')}</ul>` : '';
+  const srcs = reg && reg.sources && reg.sources.length ? `<ol class="sources">${reg.sources.map(x => `<li id="msrc-${x.n}" value="${x.n}"><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a><span class="dom">${esc(domain(x.url))}</span></li>`).join('')}</ol>` : '';
+  const evs = macroEvents().filter(e => e.t > Date.now() - 3600e3 && e.t < Date.now() + 8 * 864e5).sort((a, b) => a.t - b.t);
+  const evTable = evs.length ? `<div class="label">Scheduled releases (next 8 days)</div><table class="mtable">${evs.map(e => `<tr><td>${esc(e.name)}${e.note ? `<br><span class="pend">${esc(e.note)}</span>` : ''}</td><td class="n">${etTime(e.t)}</td><td class="n"><span class="tag ${e.impact === 'high' ? 'live' : ''}">${e.impact}</span></td></tr>`).join('')}</table>` : '';
+  return `<details class="box"${horizon !== SCALP ? ' open' : ''}><summary>Macro backdrop · ${m == null ? 'n/a' : (m > 0.1 ? 'risk-on' : m < -0.1 ? 'risk-off' : 'neutral') + ' ' + (m >= 0 ? '+' : '') + m.toFixed(2)}</summary><div class="sec">
+    ${reg ? `<p class="summary" style="font-size:13.5px">${esc(reg.summary)} <span class="pend">(researched ${ago(Date.parse(desk.macro.asof))}, ${esc(reg.label)}, score ${reg.score >= 0 ? '+' : ''}${reg.score})</span></p>` : ''}
+    ${live}${facts}${srcs}${evTable}
+    <div class="pend">The 7-day odds shift by up to 4 points with this score (60% researched regime, 40% live markets). 10-minute trades pause around high-impact releases instead.</div>
+  </div></details>`;
 }
 function catalystsFor(c) { return (desk && desk.catalysts && desk.catalysts[c.id]) || []; }
 function hardFor(c) {
@@ -733,7 +801,10 @@ function odds(c, hz = horizon) {
   const m = mainFor(c);
   const b = Quant.blend(a, r.q, m ? m.funding : null);
   const base = a || { bull: { target: null, why: [] }, bear: { target: null, why: [] }, summary: 'Quant read only; no AI odds for this coin yet.', hz, model: 'Quant engine', at: r.at };
-  return Object.assign({}, base, { bull: Object.assign({}, base.bull, { prob: b.bullProb }), bear: Object.assign({}, base.bear, { prob: 100 - b.bullProb }), conf: b.conf, blend: b.parts, ai: a });
+  const mac = macroNow();
+  const tilt = mac == null ? 0 : Math.round(4 * mac);
+  const bp = Math.max(20, Math.min(80, b.bullProb + tilt));
+  return Object.assign({}, base, { bull: Object.assign({}, base.bull, { prob: bp }), bear: Object.assign({}, base.bear, { prob: 100 - bp }), conf: b.conf, blend: Object.assign({}, b.parts, { macro: mac, tilt }), ai: a });
 }
 function levelsFor(c, a) {
   const r = quantRes[c.id];
@@ -894,6 +965,7 @@ function renderHz() {
 
 // ---------- sheet ----------
 function oddsBlock(a, c) {
+  c = a.px ? Object.assign({}, c, { current_price: a.px }) : c;
   return `<div class="oddsbar" role="img" aria-label="Bull ${a.bull.prob} percent, bear ${a.bear.prob} percent">
       <div class="b" style="flex-basis:${a.bull.prob}%">${a.bull.prob}%</div><div class="s" style="flex-basis:${a.bear.prob}%">${a.bear.prob}%</div><div class="mid"></div></div>
     <div class="oddslab"><span>▲ Higher in ${a.hz}</span><span>Lower in ${a.hz} ▼</span></div>
@@ -939,7 +1011,7 @@ function quantBlock(c, a) {
       <td class="n">${x.weight > 0 ? (x.weight * 100).toFixed(1) : 'off'}</td></tr>`;
   }).join('');
   const b = a && a.blend;
-  const build = b ? `<div class="build">How the final numbers were built: AI <b>${b.aiProb ?? '—'}/${b.aiProb != null ? 100 - b.aiProb : '—'}</b> at <b>${b.aiConf ?? '—'}</b> confidence, blended 50/50 with quant <b>${b.qProb}/${100 - b.qProb}</b> at <b>${b.qConf}</b>${b.bonus > 0 ? ', both point the same way (<b>+8</b>)' : b.bonus < 0 ? ', they disagree (<b>−12</b>)' : ''} → <b>${a.bull.prob}/${a.bear.prob}</b> at <b>${a.conf}</b> confidence.${b.fundNote ? ' ' + esc(b.fundNote) : ''}</div>` : '';
+  const build = b ? `<div class="build">How the final numbers were built: AI <b>${b.aiProb ?? '—'}/${b.aiProb != null ? 100 - b.aiProb : '—'}</b> at <b>${b.aiConf ?? '—'}</b> confidence, blended 50/50 with quant <b>${b.qProb}/${100 - b.qProb}</b> at <b>${b.qConf}</b>${b.bonus > 0 ? ', both point the same way (<b>+8</b>)' : b.bonus < 0 ? ', they disagree (<b>−12</b>)' : ''} → <b>${a.bull.prob}/${a.bear.prob}</b> at <b>${a.conf}</b> confidence.${b.tilt ? ` Macro ${b.macro > 0 ? 'risk-on' : 'risk-off'} adds <b>${b.tilt > 0 ? '+' : ''}${b.tilt}</b> to the bull side (included above).` : ''}${b.fundNote ? ' ' + esc(b.fundNote) : ''}</div>` : '';
   return `<div class="sechead"><span class="label">Quant &amp; technicals</span><span class="tag">${q.readings.length} strategies · backtested</span></div>
     <p class="summary" style="font-size:13.5px">Composite ${dirTxt} (score ${q.S >= 0 ? '+' : ''}${q.S.toFixed(2)}). Out-of-sample backtest: it called the 7-day direction right <b>${Math.round(q.oos * 100)}%</b> of ${q.oosN} recent days it took a side. Voting strategies agree ${Math.round(q.agreement * 100)}%, signal strength ${Math.round(q.strength * 100)}%. 30-day volatility ${Math.round(q.vol * 100)}% a year.</p>
     <div style="overflow-x:auto"><table class="qtable"><thead><tr><th>Strategy · today</th><th>Vote</th><th>7-day hit rate</th><th>Weight</th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -1037,12 +1109,14 @@ function renderSheet() {
     if (horizon === SCALP) {
       body = `${hardBlock(c)}<div class="sec"><div class="sechead"><span class="label">Odds over the next 10 minutes</span><span class="tag live">1-min data · live flow</span></div>${a ? oddsBlock(a, c) : scalpBlock(c, a || { scalp: {} })}</div>
         ${a ? `<div class="sec">${levelsBlock(c, a)}</div><div class="sec">${scalpBlock(c, a)}</div>` : ''}
+        ${macroBlock()}
         <details class="box"><summary>Bigger picture: 7-day AI view and daily quant</summary><div class="sec">${quantBlock(c, null)}${ev}</div></details>`;
     } else
     body = `${hardBlock(c)}<div class="sec">${head}${main}</div>
       <div class="sec">${a ? levelsBlock(c, a) : ''}</div>
       <div class="sec">${quantBlock(c, a)}</div>
       <div class="sec">${ev}</div>
+      ${macroBlock()}
       <details class="box"><summary>Market data the model saw</summary><div>${inputsTable((d || q)?.inputs || inputs(c))}</div></details>`;
   }
 
@@ -1117,10 +1191,11 @@ function ticketHTML(c, h, a) {
       ${tpPx ? `<span>Take profit</span><b class="up">${fmtLvl(tpPx)} → about +${fmtPx(gainAtTp)}</b>` : ''}
     </div>
     ${notional < 10 ? '<div class="err">Hyperliquid needs at least a $10 position. Raise margin or leverage.</div>' : ''}
+    ${a.scalp && a.scalp.O.blackout ? `<div class="err">${esc(a.scalp.O.blackout.name)} is due ${etTime(a.scalp.O.blackout.t)}. The desk pauses 10-minute trades from 15 minutes before to 10 minutes after high-impact releases.</div>` : ''}
     ${pendingConfirm ? `<div class="confirm">
         <div><b>${s === 'long' ? 'Buy' : 'Sell'} ${sz} ${esc(h.name)}</b> ${entryType === 'limit' && LV ? 'with a limit at ' + fmtLvl(LV.entry) : `at market (max ${S.slip}% slippage)`}, ${lev}× cross, on <b>${S.net}</b>${slPx ? `, stop ${fmtLvl(slPx)}` : ''}${tpPx ? `, take profit ${fmtLvl(tpPx)}` : ''}${a.scalp && autoClose ? ', closed automatically after 10 minutes if still open (keep this tab open)' : ''}.${S.net === 'mainnet' ? ' <span class="dn">This uses real money.</span>' : ''}</div>
         <div class="row"><button class="btn" id="cancelOrder">Cancel</button><button class="btn gold" id="placeOrder">Place ${s} ${lev}×</button></div>
-      </div>` : `<button class="btn gold" id="reviewOrder" ${notional < 10 ? 'disabled' : ''}>Review ${s} ${lev}×</button>`}
+      </div>` : `<button class="btn gold" id="reviewOrder" ${notional < 10 || (a.scalp && a.scalp.O.blackout) ? 'disabled' : ''}>Review ${s} ${lev}×</button>`}
     ${lastResult ? `<div class="result ${lastResult.ok ? 'ok' : 'bad'}">${esc(lastResult.msg)}</div>` : ''}
   </div>`;
 }
@@ -1331,6 +1406,10 @@ updateNet();
   loadAccount();
   runQueue(false);
   runScalp(true).then(() => runQuant());
+  loadMacroLive().then(() => { renderMacroChrome(); scheduleRender(); if (selected) renderSheet(); });
+  renderMacroChrome();
+  setInterval(renderMacroChrome, 20000);
+  setInterval(() => loadMacroLive().then(renderMacroChrome), 600000);
   // 10-minute mode: live order flow for the open coin every 5 s, its candles every 30 s, all coins every 2 min
   setInterval(async () => {
     if (horizon !== SCALP || !selected || !mainFor(selected) || document.hidden) return;
