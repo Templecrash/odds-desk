@@ -306,7 +306,7 @@ dialog::backdrop{background:rgba(5,8,11,.7)}
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
-const STABLES = new Set(['usdt','usdc','dai','usde','fdusd','usds','pyusd','tusd','usd1','rlusd','usdtb','bsc-usd','susde','usdd','gusd','usdp','frax','usdx','usdg','buidl','usyc','susds','usd0','eurc','xaut','paxg','wbtc','weth','steth','wsteth','weeth','cbbtc','reth','wbeth','lbtc','jitosol','bnsol','solvbtc','meth','ezeth','rseth','msol','clbtc','tbtc','lseth','oseth','figr_heloc','usdf','usdai','syrupusdc']);
+const STABLES = new Set(['usdt','usdc','dai','usde','fdusd','usds','pyusd','tusd','usd1','rlusd','usdtb','bsc-usd','susde','usdd','gusd','usdp','frax','usdx','usdg','buidl','usyc','susds','usd0','eurc','xaut','paxg','wbtc','weth','steth','wsteth','weeth','cbbtc','reth','wbeth','lbtc','jitosol','bnsol','solvbtc','meth','ezeth','rseth','msol','clbtc','tbtc','lseth','oseth','figr_heloc','usdf','usdai','syrupusdc','usd1-wlfi','global-dollar','hashnote-usyc','ripple-usd','ondo-us-dollar-yield','blackrock-usd-institutional-digital-liquidity-fund','falcon-finance','spiko-amundi-overnight-swap-fund-eur','united-stables','bfusd','usdgo','superstate-short-duration-us-government-securities-fund-ustb','open-usd','gho','eutbl','tether-gold','pax-gold','figure-heloc','blockchain-capital','paypal-usd','ethena-usde','usds']);
 const TTL = 6 * 3600e3;
 const HZS = ['24 hours', '7 days', '30 days'];
 
@@ -340,6 +340,22 @@ function saveStore() {
 const qk = (c, hz = horizon) => 'q|' + c.id + '|' + hz;
 const dk = (c, hz = horizon) => 'd|' + c.id + '|' + hz;
 const fresh = k => store[k] && Date.now() - store[k].at < TTL;
+
+// ---------- desk run: results Claude researched and shipped with the app ----------
+let desk = null;
+async function loadDesk() {
+  try {
+    const r = await fetch('odds.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    desk = await r.json();
+    const at = Date.parse(desk.asof);
+    for (const [id, o] of Object.entries(desk.coins || {})) {
+      const k = 'd|' + id + '|' + desk.horizon;
+      if (store[k] && store[k].at > at && !store[k].desk) continue;
+      store[k] = Object.assign({}, o, { hz: desk.horizon, model: desk.model, at, desk: true });
+    }
+  } catch (e) {}
+}
 
 // ---------- formatting ----------
 function fmtPx(p) {
@@ -567,7 +583,12 @@ async function runQueue(force) {
 }
 function renderStatus() {
   const el = $('#aiStatus');
-  if (!S.key) { el.hidden = true; return; }
+  if (!S.key) {
+    if (!desk) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = horizon === desk.horizon ? `<span>Researched by Claude · ${ago(Date.parse(desk.asof))}</span>` : `<span>Desk odds cover ${desk.horizon} · add a key for ${horizon}</span>`;
+    return;
+  }
   el.hidden = false;
   if (qStop) { el.innerHTML = `<span class="dn">${esc(qStop)}</span>`; return; }
   if (qRunning) { el.innerHTML = `<span>AI odds ${qDone}/${qTotal}</span><span class="track"><span style="width:${qTotal ? qDone / qTotal * 100 : 0}%"></span></span>`; return; }
@@ -712,7 +733,7 @@ function renderSheet() {
     let ev;
     if (deepBusy) ev = `<div class="thinking"><span class="dot"></span>Researching ${esc(c.name)} on the web and checking the call${q ? ' (quick read shown above)' : ''}…</div>`;
     else if (deepErr) ev = `<div class="err">${esc(deepErr)}</div><button class="btn" id="runDeep">Try the research again</button>`;
-    else if (d) ev = evidenceBlock(d) + `<div class="meta"><span>${esc(d.model)} · researched ${ago(d.at)} at ${fmtPx(d.px)}${q && q.bull.prob !== d.bull.prob ? ` · quick read said ${q.bull.prob}/${q.bear.prob}` : ''}</span><button class="btn sm" id="runDeep">Re-research</button></div>`;
+    else if (d) ev = evidenceBlock(d) + `<div class="meta"><span>${esc(d.model)} · researched ${ago(d.at)} at ${fmtPx(d.px)}${q && q.bull.prob !== d.bull.prob ? ` · quick read said ${q.bull.prob}/${q.bear.prob}` : ''}</span>${S.key ? '<button class="btn sm" id="runDeep">Re-research</button>' : ''}</div>`;
     else ev = S.key ? `<button class="btn" id="runDeep">Research with web sources</button>` : '';
     body = `<div class="sec">${head}${main}</div>
       <div class="sec">${ev}</div>
@@ -887,13 +908,17 @@ $('#tbody').addEventListener('click', e => { const tr = e.target.closest('tr.r')
 $('#tbody').addEventListener('keydown', e => { if (e.key === 'Enter') { const tr = e.target.closest('tr.r'); if (tr) select(tr.dataset.id); } });
 
 // ---------- boot ----------
-updateNet(); renderHz();
+updateNet();
 (async () => {
   const errs = [];
-  await Promise.all([loadCoins().catch(e => errs.push(e.message)), loadHL().catch(e => errs.push(e.message))]);
+  await Promise.all([loadCoins().catch(e => errs.push(e.message)), loadHL().catch(e => errs.push(e.message)), loadDesk()]);
+  if (desk && !S.key) horizon = desk.horizon;
+  renderHz();
   if (!coins.length) { $('#tbody').innerHTML = `<tr><td colspan="7"><div class="err">Couldn't load the top 100. ${esc(errs.join(' · '))}</div></td></tr>`; return; }
   if (errs.length) $('#notice').innerHTML += ' <span class="dn">' + esc(errs.join(' · ')) + '</span>';
-  if (!S.key) $('#notice').innerHTML = '<b>Start in Settings:</b> add an Anthropic API key and the bull/bear odds fill in for every coin automatically. ' + $('#notice').innerHTML;
+  if (!S.key) $('#notice').innerHTML = desk
+    ? `<b>Odds researched by Claude ${new Date(desk.asof).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</b> over ${desk.horizon}, with web sources for each coin. Add your own Anthropic key in Settings to refresh them or change the horizon. ` + $('#notice').innerHTML.replace('<b>AI odds are opinions, not forecasts.</b>', 'AI odds are opinions, not forecasts.')
+    : '<b>Start in Settings:</b> add an Anthropic API key and the bull/bear odds fill in for every coin automatically. ' + $('#notice').innerHTML;
   renderTable(); renderStatus();
   if (innerWidth > 900) select(coins[0].id);
   loadAccount();
