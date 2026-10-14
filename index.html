@@ -842,7 +842,7 @@ async function marketOrder(h, isBuy, sizeCoins, reduceOnly, mid) {
 
 // ---------- ledger ----------
 let renderPending = false;
-function scheduleRender() { if (!renderPending) { renderPending = true; requestAnimationFrame(() => { renderPending = false; renderTable(); }); } }
+function scheduleRender() { if (!renderPending) { renderPending = true; setTimeout(() => { renderPending = false; renderTable(); }, 80); } }
 function oddsCells(c) {
   if (isStable(c)) return '<td><span class="chip flat">n/a</span></td><td></td>';
   const a = odds(c);
